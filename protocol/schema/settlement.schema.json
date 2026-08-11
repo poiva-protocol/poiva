@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/settlement.schema.json",
+  "title": "Settlement",
+  "description": "Compensation or accounting entry closing out a mission's completed work. See docs/protocol/04-terminology.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "type": { "$ref": "common.schema.json#/$defs/settlementType" },
+    "state": { "$ref": "common.schema.json#/$defs/settlementState" },
+    "amount": {
+      "type": ["number", "null"],
+      "description": "Settlement amount, in the given currency."
+    },
+    "currency": {
+      "type": ["string", "null"],
+      "description": "ISO 4217 currency code, e.g. 'USD'."
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "type", "state", "createdAt"],
+  "additionalProperties": false
+}

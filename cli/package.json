@@ -1,0 +1,21 @@
+{
+  "name": "poiva",
+  "version": "0.1.0",
+  "description": "Command-line client for the Poiva protocol — manage missions, activities, deliverables, evidence, verifications, and settlements against any Poiva-conformant server.",
+  "keywords": ["poiva", "protocol", "cli", "work-execution"],
+  "license": "MIT",
+  "homepage": "https://github.com/vladutbutnaru/poiva-protocol/tree/main/cli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vladutbutnaru/poiva-protocol.git",
+    "directory": "cli"
+  },
+  "bin": {
+    "poiva": "./poiva"
+  },
+  "files": ["poiva", "README.md"],
+  "engines": {
+    "node": ">=14"
+  },
+  "os": ["darwin", "linux", "win32"]
+}

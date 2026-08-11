@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/common.schema.json",
+  "title": "Poiva Protocol — Common Definitions",
+  "description": "Shared enum and primitive definitions referenced by every resource schema in the Poiva protocol. See docs/protocol/04-terminology.md for the prose definition of each concept.",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Server-assigned unique identifier for a protocol resource."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 / RFC 3339 instant, always UTC."
+    },
+    "missionState": {
+      "type": "string",
+      "description": "Mission lifecycle state. See docs/protocol/05-mission.md section 7.",
+      "enum": [
+        "DRAFT",
+        "KNOWLEDGE",
+        "PLANNING",
+        "ESTIMATION",
+        "PROVISIONING",
+        "EXECUTING",
+        "VERIFYING",
+        "APPROVAL",
+        "SETTLEMENT",
+        "COMPLETED",
+        "CANCELLED"
+      ]
+    },
+    "activityState": {
+      "type": "string",
+      "description": "Activity lifecycle state. See docs/protocol/06-activity.md section 5.",
+      "enum": [
+        "DRAFT",
+        "READY",
+        "ASSIGNED",
+        "EXECUTING",
+        "SUBMITTED",
+        "VERIFYING",
+        "APPROVED",
+        "COMPLETED",
+        "CANCELLED",
+        "REJECTED",
+        "ARCHIVED"
+      ]
+    },
+    "deliverableState": {
+      "type": "string",
+      "description": "Deliverable review lifecycle state.",
+      "enum": ["SUBMITTED", "IN_REVIEW", "ACCEPTED", "REJECTED"]
+    },
+    "verificationMode": {
+      "type": "string",
+      "description": "How a verification is (or was) performed.",
+      "enum": ["AUTOMATIC", "MANUAL", "HYBRID"]
+    },
+    "verificationOutcome": {
+      "type": "string",
+      "description": "Result of a verification. PENDING denotes a verification awaiting an outcome.",
+      "enum": ["PENDING", "PASSED", "FAILED", "INCONCLUSIVE"]
+    },
+    "settlementState": {
+      "type": "string",
+      "description": "Settlement lifecycle state.",
+      "enum": ["PENDING", "CONFIRMED", "CANCELLED"]
+    },
+    "settlementType": {
+      "type": "string",
+      "description": "Mechanism by which a settlement is realized.",
+      "enum": ["INVOICE", "PAYROLL", "INTERNAL_ACCOUNTING", "PURCHASE_ORDER", "GRANT"]
+    },
+    "priority": {
+      "type": "string",
+      "description": "Relative priority of a mission.",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "participantKind": {
+      "type": "string",
+      "description": "The nature of a participant fulfilling or sponsoring work.",
+      "enum": ["HUMAN", "ORGANIZATION", "AI_AGENT", "ROBOT", "EXTERNAL_SYSTEM"]
+    }
+  }
+}

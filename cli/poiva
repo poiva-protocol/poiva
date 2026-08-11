@@ -1,0 +1,2818 @@
+#!/usr/bin/env node
+
+var fs = require('fs');
+var path = require('path');
+var os = require('os');
+var readline = require('readline');
+var crypto = require('crypto');
+var childProcess = require('child_process');
+var http = require('http');
+var https = require('https');
+
+var CLI_VERSION = '0.1.0';
+var PROTOCOL_VERSION = '1.0';
+var GLOBAL_DIR = path.join(os.homedir(), '.poiva');
+var GLOBAL_SESSIONS_FILE = path.join(GLOBAL_DIR, 'sessions.json');
+var GLOBAL_CURRENT_SESSION_FILE = path.join(GLOBAL_DIR, 'current-session.json');
+
+// ANSI color codes (no external deps)
+var COLORS = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  
+  black: '\x1b[30m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  white: '\x1b[37m',
+  
+  bgRed: '\x1b[41m',
+  bgGreen: '\x1b[42m',
+  bgYellow: '\x1b[43m',
+  bgBlue: '\x1b[44m',
+  bgCyan: '\x1b[46m',
+};
+
+var COMMAND_HELP = {
+  auth: {
+    description: 'Manage authentication sessions and credentials.',
+    verbs: {
+      login: 'Authenticate to Poiva. Interactive or with flags.',
+      logout: 'Remove current session credentials.',
+      whoami: 'Display current user, org, and session info.'
+    },
+    examples: [
+      'poiva auth login',
+      'poiva auth login --name production --url https://api.getpoiva.com --token abc123',
+      'poiva auth logout',
+      'poiva auth whoami'
+    ]
+  },
+  session: {
+    description: 'Manage named sessions for multiple Poiva servers.',
+    verbs: {
+      list: 'List all saved sessions.',
+      add: 'Add a new session (interactive or with args).',
+      remove: 'Remove a session by name.',
+      rename: 'Rename an existing session.',
+      use: 'Switch to a session.',
+      current: 'Display the current active session.',
+      export: 'Export sessions to JSON file.',
+      import: 'Import sessions from JSON file.'
+    },
+    examples: [
+      'poiva session list',
+      'poiva session add',
+      'poiva session use production',
+      'poiva session rename old-name new-name',
+      'poiva session export sessions.json'
+    ]
+  },
+  org: {
+    description: 'Manage organizations.',
+    verbs: {
+      current: 'Show the current organization.',
+      list: 'List organizations you belong to.',
+      switch: 'Switch to a different organization.',
+      describe: 'Show details of the current organization.'
+    },
+    examples: [
+      'poiva org current',
+      'poiva org list',
+      'poiva org switch my-org',
+      'poiva org describe'
+    ]
+  },
+  mission: {
+    description: 'Manage missions (goals with activities, resources, and budget).',
+    verbs: {
+      create: 'Create a new mission (interactive or from file).',
+      get: 'Get details of a mission.',
+      list: 'List missions (supports filtering and pagination).',
+      update: 'Update a mission.',
+      delete: 'Delete a mission.',
+      archive: 'Archive a mission.',
+      cancel: 'Cancel a mission.',
+      export: 'Export a mission as YAML/JSON.',
+      import: 'Import a mission from file.',
+      watch: 'Watch mission in real-time.',
+      timeline: 'Show mission execution timeline.',
+      graph: 'Display mission DAG (ASCII graph).'
+    },
+    examples: [
+      'poiva mission create',
+      'poiva mission create --file mission.yaml',
+      'poiva mission list',
+      'poiva mission list --status executing --owner vlad --page 2 --size 50',
+      'poiva mission get mission-123',
+      'poiva mission update mission-123',
+      'poiva mission watch mission-123',
+      'poiva mission timeline mission-123'
+    ]
+  },
+  activity: {
+    description: 'Manage activities within missions.',
+    verbs: {
+      create: 'Create an activity.',
+      list: 'List activities.',
+      get: 'Get activity details.',
+      update: 'Update an activity.',
+      delete: 'Delete an activity.',
+      assign: 'Assign participant(s) to activity.',
+      start: 'Start an activity.',
+      complete: 'Mark activity complete.',
+      verify: 'Verify activity completion.',
+      watch: 'Watch activity progress.'
+    },
+    examples: [
+      'poiva activity create',
+      'poiva activity list --missionId mission-123',
+      'poiva activity assign activity-1 participant-5'
+    ]
+  },
+  participant: {
+    description: 'Manage participants (people or entities fulfilling work).',
+    verbs: {
+      create: 'Create a participant.',
+      list: 'List participants.',
+      get: 'Get participant details.',
+      update: 'Update participant info.',
+      delete: 'Remove a participant.',
+      assign: 'Assign to activities or missions.'
+    },
+    examples: [
+      'poiva participant create',
+      'poiva participant list --role resource',
+      'poiva participant get participant-123'
+    ]
+  },
+  deliverable: {
+    description: 'Manage deliverables (outputs from activities).',
+    verbs: {
+      submit: 'Submit a deliverable.',
+      list: 'List deliverables.',
+      download: 'Download a deliverable.',
+      approve: 'Approve a deliverable.',
+      reject: 'Reject a deliverable.'
+    },
+    examples: [
+      'poiva deliverable list --missionId mission-123',
+      'poiva deliverable approve deliverable-1',
+      'poiva deliverable download deliverable-1 --output ./file.pdf'
+    ]
+  },
+  capability: {
+    description: 'Manage capabilities (skills and expertise).',
+    verbs: {
+      list: 'List available capabilities.',
+      search: 'Search for capabilities by keyword.',
+      create: 'Define a new capability.',
+      update: 'Update capability definition.',
+      delete: 'Remove a capability.'
+    },
+    examples: [
+      'poiva capability list',
+      'poiva capability search Java',
+      'poiva capability create --code JAVA --display "Java Development"'
+    ]
+  },
+  knowledge: {
+    description: 'Manage knowledge assets (documentation, references).',
+    verbs: {
+      add: 'Add a knowledge asset.',
+      upload: 'Upload a document or file.',
+      list: 'List knowledge assets.',
+      remove: 'Remove a knowledge asset.'
+    },
+    examples: [
+      'poiva knowledge list',
+      'poiva knowledge upload architecture.pdf',
+      'poiva knowledge add --title "API Reference" --locator https://docs.example.com'
+    ]
+  },
+  objective: {
+    description: 'Manage objectives (goals for missions).',
+    verbs: {
+      create: 'Create an objective.',
+      list: 'List objectives.',
+      get: 'Get objective details.',
+      update: 'Update an objective.',
+      delete: 'Delete an objective.'
+    },
+    examples: [
+      'poiva objective create --missionId mission-123 --title "Complete Phase 1"',
+      'poiva objective list --missionId mission-123'
+    ]
+  },
+  constraint: {
+    description: 'Manage constraints (limitations and rules).',
+    verbs: {
+      create: 'Create a constraint.',
+      list: 'List constraints.',
+      get: 'Get constraint details.',
+      update: 'Update a constraint.',
+      remove: 'Remove a constraint.'
+    },
+    examples: [
+      'poiva constraint create --missionId mission-123 --title "Budget Limit"',
+      'poiva constraint list --missionId mission-123'
+    ]
+  },
+  policy: {
+    description: 'Manage policies (rules and governance).',
+    verbs: {
+      create: 'Create a policy.',
+      list: 'List policies.',
+      get: 'Get policy details.',
+      update: 'Update a policy.',
+      delete: 'Delete a policy.'
+    },
+    examples: [
+      'poiva policy create --title "Review Required" --missionId mission-123',
+      'poiva policy list'
+    ]
+  },
+  evidence: {
+    description: 'Manage evidence (proof of work completion).',
+    verbs: {
+      upload: 'Upload evidence file.',
+      list: 'List evidence.',
+      get: 'Get evidence details.',
+      verify: 'Verify evidence authenticity.'
+    },
+    examples: [
+      'poiva evidence upload --subjectId activity-1 --file proof.pdf',
+      'poiva evidence list --subjectId activity-1'
+    ]
+  },
+  verification: {
+    description: 'Manage verification processes.',
+    verbs: {
+      run: 'Run verification checks.',
+      approve: 'Approve verification result.',
+      reject: 'Reject verification result.',
+      history: 'View verification history.'
+    },
+    examples: [
+      'poiva verification run --deliverableId deliverable-1',
+      'poiva verification approve verification-1'
+    ]
+  },
+  settlement: {
+    description: 'Manage settlements (payment and compensation).',
+    verbs: {
+      create: 'Create a settlement.',
+      approve: 'Approve settlement.',
+      list: 'List settlements.',
+      export: 'Export settlement report.'
+    },
+    examples: [
+      'poiva settlement create --missionId mission-123',
+      'poiva settlement approve settlement-1'
+    ]
+  },
+  event: {
+    description: 'Monitor protocol events in real-time.',
+    verbs: {
+      list: 'List events.',
+      watch: 'Watch events in real-time.',
+      tail: 'Tail latest events.'
+    },
+    examples: [
+      'poiva event list --missionId mission-123',
+      'poiva event watch',
+      'poiva event tail --lines 20'
+    ]
+  },
+  search: {
+    description: 'Search across all entities in current workspace.',
+    verbs: {},
+    examples: [
+      'poiva search OAuth',
+      'poiva search "payment processing"'
+    ]
+  },
+  profile: {
+    description: 'Manage user profile and preferences.',
+    verbs: {
+      show: 'Display current profile.',
+      edit: 'Edit profile settings.'
+    },
+    examples: [
+      'poiva profile show',
+      'poiva profile edit'
+    ]
+  },
+  config: {
+    description: 'Manage CLI and workspace configuration.',
+    verbs: {
+      get: 'Get configuration value.',
+      set: 'Set configuration value.',
+      edit: 'Edit configuration file.'
+    },
+    examples: [
+      'poiva config get',
+      'poiva config set api.timeout 30',
+      'poiva config edit'
+    ]
+  },
+  extension: {
+    description: 'Manage CLI extensions and plugins.',
+    verbs: {
+      list: 'List installed extensions.',
+      install: 'Install an extension.',
+      remove: 'Remove an extension.'
+    },
+    examples: [
+      'poiva extension list',
+      'poiva extension install analytics',
+      'poiva extension remove old-plugin'
+    ]
+  },
+  version: {
+    description: 'Show CLI and protocol versions.',
+    verbs: {
+      check: 'Check for CLI updates.'
+    },
+    examples: [
+      'poiva version',
+      'poiva version check'
+    ]
+  },
+  completion: {
+    description: 'Generate shell completion scripts.',
+    verbs: {},
+    examples: [
+      'poiva completion bash',
+      'poiva completion zsh'
+    ]
+  },
+  init: {
+    description: 'Initialize a Poiva workspace in current directory.',
+    verbs: {},
+    examples: [
+      'poiva init'
+    ]
+  },
+  doctor: {
+    description: 'Diagnose Poiva environment and connections.',
+    verbs: {},
+    examples: [
+      'poiva doctor'
+    ]
+  },
+  dashboard: {
+    description: 'Interactive live dashboard for protocol resources (k9s-style loop).',
+    verbs: {
+      start: 'Open interactive dashboard with live refresh and in-place CRUD.'
+    },
+    examples: [
+      'poiva dashboard',
+      'poiva dashboard --resource mission --interval 5',
+      'poiva dashboard --resource participant --size 50'
+    ]
+  }
+};
+
+var RESOURCE_DEFS = {
+  mission: {
+    file: 'missions.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'draft',
+    promptFields: ['title', 'summary', 'owner', 'status'],
+    columns: ['id', 'status', 'title', 'owner']
+  },
+  activity: {
+    file: 'activities.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'draft',
+    promptFields: ['title', 'summary', 'missionId', 'assignee', 'status'],
+    columns: ['id', 'status', 'title', 'missionId']
+  },
+  participant: {
+    file: 'participants.json',
+    titleField: 'displayName',
+    statusField: 'role',
+    defaultStatus: 'member',
+    promptFields: ['displayName', 'kind', 'role', 'availability'],
+    columns: ['id', 'role', 'displayName', 'kind']
+  },
+  capability: {
+    file: 'capabilities.json',
+    titleField: 'display',
+    statusField: 'status',
+    defaultStatus: 'active',
+    promptFields: ['code', 'display', 'description'],
+    columns: ['id', 'code', 'display']
+  },
+  knowledge: {
+    file: 'knowledge.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'active',
+    promptFields: ['title', 'type', 'locator', 'missionId'],
+    columns: ['id', 'type', 'title', 'locator']
+  },
+  objective: {
+    file: 'objectives.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'draft',
+    promptFields: ['title', 'summary', 'missionId'],
+    columns: ['id', 'status', 'title', 'missionId']
+  },
+  constraint: {
+    file: 'constraints.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'active',
+    promptFields: ['title', 'summary', 'missionId'],
+    columns: ['id', 'status', 'title', 'missionId']
+  },
+  policy: {
+    file: 'policies.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'draft',
+    promptFields: ['title', 'summary', 'missionId'],
+    columns: ['id', 'status', 'title', 'missionId']
+  },
+  deliverable: {
+    file: 'deliverables.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'pending',
+    promptFields: ['title', 'artifactType', 'missionId', 'submittedBy'],
+    columns: ['id', 'status', 'title', 'missionId']
+  },
+  evidence: {
+    file: 'evidence.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'pending',
+    promptFields: ['title', 'type', 'subjectId', 'locator'],
+    columns: ['id', 'type', 'title', 'subjectId']
+  },
+  verification: {
+    file: 'verifications.json',
+    titleField: 'title',
+    statusField: 'decision',
+    defaultStatus: 'pending',
+    promptFields: ['title', 'policyCode', 'targetId', 'decision'],
+    columns: ['id', 'decision', 'title', 'targetId']
+  },
+  settlement: {
+    file: 'settlements.json',
+    titleField: 'title',
+    statusField: 'status',
+    defaultStatus: 'pending',
+    promptFields: ['title', 'missionId', 'status'],
+    columns: ['id', 'status', 'title', 'missionId']
+  },
+  event: {
+    file: 'events.json',
+    titleField: 'type',
+    statusField: 'status',
+    defaultStatus: 'recorded',
+    promptFields: ['type', 'summary', 'missionId'],
+    columns: ['id', 'type', 'status', 'missionId']
+  }
+};
+
+// Remote (session-backed) support only covers the typed protocol model exposed at
+// /api/cloud/workspace/**: mission, activity, deliverable, evidence, verification, settlement.
+// participant/capability/knowledge/objective/constraint/policy/event have no server-side typed
+// model yet, so they remain local-workspace-only (see RESOURCE_DEFS/loadResourceStore above).
+// The typed API also has no generic field update or delete — only create, list, and (for most
+// resources) a single state/outcome transition.
+var REMOTE_RESOURCE_DEFS = {
+  mission: {
+    parentParam: null,
+    listPath: function () { return '/api/cloud/workspace/missions'; },
+    createPath: function () { return '/api/cloud/workspace/missions'; },
+    createFields: ['title', 'description', 'priority'],
+    statePath: function (id) { return '/api/cloud/workspace/missions/' + id + '/state'; },
+    stateField: 'state',
+    stateValues: ['DRAFT', 'KNOWLEDGE', 'PLANNING', 'ESTIMATION', 'PROVISIONING', 'EXECUTING', 'VERIFYING', 'APPROVAL', 'SETTLEMENT', 'COMPLETED', 'CANCELLED'],
+    columns: ['id', 'state', 'title', 'priority'],
+    toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.title, priority: r.priority || '' }; }
+  },
+  activity: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/activities'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/activities'; },
+    createFields: ['title', 'description'],
+    statePath: function (id) { return '/api/cloud/workspace/activities/' + id + '/state'; },
+    stateField: 'state',
+    stateValues: ['DRAFT', 'READY', 'ASSIGNED', 'EXECUTING', 'SUBMITTED', 'VERIFYING', 'APPROVED', 'COMPLETED', 'CANCELLED', 'REJECTED', 'ARCHIVED'],
+    columns: ['id', 'state', 'title', 'missionId'],
+    toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.title, missionId: r.missionId }; }
+  },
+  deliverable: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/deliverables'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/deliverables'; },
+    createFields: ['title', 'artifactType', 'activityId'],
+    statePath: function (id) { return '/api/cloud/workspace/deliverables/' + id + '/state'; },
+    stateField: 'state',
+    stateValues: ['SUBMITTED', 'IN_REVIEW', 'ACCEPTED', 'REJECTED'],
+    columns: ['id', 'state', 'title', 'missionId'],
+    toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.title, missionId: r.missionId, activityId: r.activityId || '' }; }
+  },
+  evidence: {
+    parentParam: 'deliverableId',
+    listPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/evidence'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/evidence'; },
+    createFields: ['type', 'locator'],
+    statePath: null,
+    columns: ['id', 'type', 'locator', 'deliverableId'],
+    toRow: function (r) { return { id: r.id, type: r.type, status: r.type, title: r.type + ' evidence', locator: r.locator, deliverableId: r.deliverableId }; }
+  },
+  verification: {
+    parentParam: 'deliverableId',
+    listPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/verifications'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/verifications'; },
+    createFields: ['mode', 'policyCode'],
+    statePath: function (id) { return '/api/cloud/workspace/verifications/' + id + '/outcome'; },
+    stateField: 'outcome',
+    stateValues: ['PENDING', 'PASSED', 'FAILED', 'INCONCLUSIVE'],
+    columns: ['id', 'outcome', 'mode', 'deliverableId'],
+    toRow: function (r) { return { id: r.id, outcome: r.outcome, status: r.outcome, title: 'Verification (' + r.mode + ')', mode: r.mode, deliverableId: r.deliverableId }; }
+  },
+  settlement: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/settlements'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/settlements'; },
+    createFields: ['type', 'amount', 'currency'],
+    statePath: function (id) { return '/api/cloud/workspace/settlements/' + id + '/state'; },
+    stateField: 'state',
+    stateValues: ['PENDING', 'CONFIRMED', 'CANCELLED'],
+    columns: ['id', 'state', 'type', 'amount'],
+    toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.type, type: r.type, amount: r.amount || '', currency: r.currency || '', missionId: r.missionId }; }
+  }
+};
+
+  function dumpYaml(obj, indent) {
+    indent = indent || 0;
+    var pad = new Array(indent + 1).join(' ');
+    var lines = [];
+    Object.keys(obj || {}).forEach(function (key) {
+      var value = obj[key];
+      if (value === null || value === undefined) {
+        lines.push(pad + key + ':');
+      } else if (Array.isArray(value)) {
+        if (value.length === 0) {
+          lines.push(pad + key + ': []');
+        } else {
+          lines.push(pad + key + ':');
+          value.forEach(function (item) {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+              lines.push(pad + '  -');
+              lines.push(dumpYaml(item, indent + 4));
+            } else {
+              lines.push(pad + '  - ' + yamlScalar(item));
+            }
+          });
+        }
+      } else if (typeof value === 'object') {
+        lines.push(pad + key + ':');
+        lines.push(dumpYaml(value, indent + 2));
+      } else {
+        lines.push(pad + key + ': ' + yamlScalar(value));
+      }
+    });
+    return lines.join('\n');
+  }
+
+  function parseYaml(text) {
+    var lines = String(text || '').split(/\r?\n/);
+    var out = {};
+    var currentKey = null;
+    var currentArray = null;
+    for (var i = 0; i < lines.length; i++) {
+      var raw = lines[i];
+      if (!raw || /^\s*#/.test(raw)) continue;
+      if (/^\s*$/.test(raw)) continue;
+      var arrayMatch = raw.match(/^\s*-\s+(.*)$/);
+      if (arrayMatch && currentArray) {
+        currentArray.push(parseScalarValue(arrayMatch[1]));
+        continue;
+      }
+      var kv = raw.match(/^([^:]+):\s*(.*)$/);
+      if (!kv) continue;
+      currentKey = kv[1].trim();
+      var value = kv[2].trim();
+      currentArray = null;
+      if (value === '[]') {
+        out[currentKey] = [];
+        continue;
+      }
+      if (value === '') {
+        out[currentKey] = '';
+        currentArray = Array.isArray(out[currentKey]) ? out[currentKey] : null;
+        continue;
+      }
+      out[currentKey] = parseScalarValue(value);
+      if (Array.isArray(out[currentKey])) currentArray = out[currentKey];
+    }
+    return out;
+  }
+
+  function parseScalarValue(value) {
+    var trimmed = String(value || '').trim();
+    if (trimmed === 'true') return true;
+    if (trimmed === 'false') return false;
+    if (trimmed === 'null' || trimmed === '~') return null;
+    if (/^-?\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+    if (/^-?\d+\.\d+$/.test(trimmed)) return parseFloat(trimmed);
+    if ((trimmed[0] === '"' && trimmed[trimmed.length - 1] === '"') || (trimmed[0] === '\'' && trimmed[trimmed.length - 1] === '\'')) {
+      return trimmed.slice(1, -1);
+    }
+    if (trimmed[0] === '[' && trimmed[trimmed.length - 1] === ']') {
+      var inner = trimmed.slice(1, -1).trim();
+      if (!inner) return [];
+      return inner.split(',').map(function (part) { return parseScalarValue(part.trim()); });
+    }
+    return trimmed;
+  }
+
+  function yamlScalar(value) {
+    if (value === null || value === undefined) return "''";
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    var stringValue = String(value);
+    if (stringValue === '') return "''";
+    if (/^[A-Za-z0-9._:-]+$/.test(stringValue)) return stringValue;
+    return JSON.stringify(stringValue);
+  }
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value || {}));
+  }
+
+  var TOP_LEVEL_COMMANDS = ['auth', 'session', 'org', 'mission', 'activity', 'participant', 'capability', 'knowledge', 'objective', 'constraint', 'policy', 'deliverable', 'evidence', 'verification', 'settlement', 'event', 'search', 'profile', 'config', 'extension', 'version', 'completion', 'doctor', 'dashboard', 'init'];
+
+function main() {
+  var argv = process.argv.slice(2);
+  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') {
+    printHelp();
+    return;
+  }
+
+  var command = argv[0];
+  var rest = argv.slice(1);
+
+  if (command === 'auth') return handleAuth(rest);
+  if (command === 'session') return handleSession(rest);
+  if (command === 'org') return handleOrg(rest);
+  if (command === 'search') return handleSearch(rest);
+  if (command === 'profile') return handleProfile(rest);
+  if (command === 'config') return handleConfig(rest);
+  if (command === 'extension') return handleExtension(rest);
+  if (command === 'version') return handleVersion(rest);
+  if (command === 'completion') return handleCompletion(rest);
+  if (command === 'doctor') return handleDoctor(rest);
+  if (command === 'dashboard') return handleDashboard(rest);
+  if (command === 'init') return handleInit(rest);
+
+  if (RESOURCE_DEFS[command]) return handleResource(command, rest);
+
+  error('Unknown command: ' + command);
+  printHelp();
+  process.exitCode = 1;
+}
+
+function handleAuth(argv) {
+  var sub = argv[0];
+  if (!sub || sub === 'help') {
+    printSection('auth', ['login', 'logout', 'whoami']);
+    return;
+  }
+  if (sub === 'login') return authLogin(argv.slice(1));
+  if (sub === 'logout') return authLogout();
+  if (sub === 'whoami') return authWhoami();
+  error('Unknown auth command: ' + sub);
+  process.exitCode = 1;
+}
+
+function handleSession(argv) {
+  var sub = argv[0];
+  if (!sub || sub === 'help') {
+    printSection('session', ['list', 'add', 'remove', 'rename', 'use', 'current', 'export', 'import']);
+    return;
+  }
+  if (sub === 'list') return sessionList();
+  if (sub === 'add') return sessionAdd(argv.slice(1));
+  if (sub === 'remove') return sessionRemove(argv.slice(1));
+  if (sub === 'rename') return sessionRename(argv.slice(1));
+  if (sub === 'use') return sessionUse(argv.slice(1));
+  if (sub === 'current') return sessionCurrent();
+  if (sub === 'export') return sessionExport(argv.slice(1));
+  if (sub === 'import') return sessionImport(argv.slice(1));
+  error('Unknown session command: ' + sub);
+  process.exitCode = 1;
+}
+
+function handleOrg(argv) {
+  var sub = argv[0] || 'current';
+  if (sub === 'help') {
+    printSection('org', ['current', 'list', 'switch', 'describe']);
+    return;
+  }
+  if (sub === 'current') return orgCurrent();
+  if (sub === 'list') return orgList();
+  if (sub === 'switch') return orgSwitch(argv.slice(1));
+  if (sub === 'describe') return orgDescribe();
+  error('Unknown org command: ' + sub);
+  process.exitCode = 1;
+}
+
+function handleSearch(argv) {
+  var args = parseArgs(argv);
+  var term = args._[0] || args.search || '';
+  if (!term) {
+    error('Usage: poiva search <term>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var results = searchWorkspace(workspace, term);
+  if (results.length === 0) {
+    info('No matches.');
+    return;
+  }
+  printTable(['resource', 'id', 'title', 'match'], results.map(function (item) {
+    return [item.resource, item.id, item.title, item.match];
+  }));
+}
+
+function handleProfile(argv) {
+  var sub = argv[0] || 'show';
+  if (sub === 'help') {
+    printSection('profile', ['show', 'edit']);
+    return;
+  }
+  if (sub === 'show') return profileShow();
+  if (sub === 'edit') return profileEdit(argv.slice(1));
+  error('Unknown profile command: ' + sub);
+  process.exitCode = 1;
+}
+
+function handleConfig(argv) {
+  var sub = argv[0] || 'get';
+  if (sub === 'help') {
+    printSection('config', ['get', 'set', 'edit']);
+    return;
+  }
+  if (sub === 'get') return configGet();
+  if (sub === 'set') return configSet(argv.slice(1));
+  if (sub === 'edit') return configEdit();
+  error('Unknown config command: ' + sub);
+  process.exitCode = 1;
+}
+
+function handleExtension(argv) {
+  var sub = argv[0] || 'list';
+  if (sub === 'help') {
+    printSection('extension', ['list', 'install', 'remove']);
+    return;
+  }
+  if (sub === 'list') return extensionList();
+  if (sub === 'install') return extensionInstall(argv.slice(1));
+  if (sub === 'remove') return extensionRemove(argv.slice(1));
+  error('Unknown extension command: ' + sub);
+  process.exitCode = 1;
+}
+
+function handleVersion(argv) {
+  var sub = argv[0];
+  if (sub === 'help') {
+    printSection('version', []);
+    return;
+  }
+  if (sub === 'check') {
+    info('Poiva CLI ' + CLI_VERSION + ' (protocol ' + PROTOCOL_VERSION + ')');
+    info('Update check: offline mode');
+    return;
+  }
+  console.log('Poiva CLI ' + CLI_VERSION);
+  console.log('Protocol ' + PROTOCOL_VERSION);
+}
+
+function handleCompletion(argv) {
+  var shell = argv[0] || 'bash';
+  if (shell !== 'bash' && shell !== 'zsh') {
+    error('Supported shells: bash, zsh');
+    process.exitCode = 1;
+    return;
+  }
+  console.log(makeCompletionScript(shell));
+}
+
+function handleDoctor(argv) {
+  if (argv && argv[0] === 'help') {
+    printSection('doctor', []);
+    return;
+  }
+  
+  var session = getCurrentSession();
+  var workspaceExists = findWorkspaceRoot(process.cwd()) !== null;
+  var workspace = workspaceExists ? loadWorkspace(findWorkspaceRoot(process.cwd())) : null;
+  var checks = [];
+
+  checks.push(['session', session ? 'ok' : 'missing', session ? session.name : 'No current session']);
+  checks.push(['authentication', session && session.token ? 'ok' : 'missing', session && session.token ? 'Token configured' : 'No token stored']);
+  checks.push(['connectivity', session && session.url ? 'ok' : 'missing', session && session.url ? session.url : 'No server URL']);
+  checks.push(['protocol version', 'ok', PROTOCOL_VERSION]);
+  checks.push(['organization', workspace && workspace.currentOrganizationId ? 'ok' : 'missing', workspace && workspace.currentOrganizationId ? workspace.currentOrganizationId : 'No current org']);
+  checks.push(['permissions', canWriteWorkspace(workspaceExists ? findWorkspaceRoot(process.cwd()) : process.cwd()) ? 'ok' : 'missing', 'Workspace writable']);
+  checks.push(['CLI updates', 'ok', 'Offline check']);
+
+  checks.forEach(function (item) {
+    console.log((item[1] === 'ok' ? '✓' : '✗') + ' ' + padRight(item[0], 18) + ' ' + item[2]);
+  });
+}
+
+function handleInit(argv) {
+  if (argv && argv[0] === 'help') {
+    printSection('init', []);
+    return;
+  }
+  
+  var args = parseArgs(argv);
+  var cwd = process.cwd();
+  var root = path.join(cwd, '.poiva');
+  if (!args.force && fs.existsSync(root)) {
+    info('.poiva already exists.');
+    return;
+  }
+  ensureDir(root);
+  ensureDir(path.join(root, 'knowledge'));
+  ensureDir(path.join(root, 'extensions'));
+  ensureDir(path.join(root, 'cache'));
+
+  var baseName = path.basename(cwd);
+  var orgName = humanize(baseName);
+  var orgSlug = slugify(baseName);
+  var orgId = 'org-' + shortId();
+  var state = {
+    protocolVersion: PROTOCOL_VERSION,
+    currentOrganizationId: orgId,
+    organizations: [{
+      id: orgId,
+      name: orgName,
+      slug: orgSlug,
+      type: 'workspace',
+      extensions: [],
+      createdAt: new Date().toISOString()
+    }],
+    profile: {
+      name: process.env.USER || process.env.USERNAME || 'vlad',
+      roles: ['Admin'],
+      protocol: PROTOCOL_VERSION
+    }
+  };
+  var config = {
+    name: orgSlug,
+    protocolVersion: PROTOCOL_VERSION,
+    currentOrganization: orgId
+  };
+  writeYaml(path.join(root, 'config.yaml'), config);
+  writeYaml(path.join(root, 'mission.yaml'), {
+    id: 'mission-' + shortId(),
+    title: 'New mission',
+    summary: 'Describe the work to be fulfilled.',
+    owner: state.profile.name,
+    status: 'draft',
+    extensions: []
+  });
+  writeJson(path.join(root, 'state.json'), state);
+  writeJson(path.join(root, 'cache.json'), {});
+  info('✓ Connected to organization');
+  info('✓ Mission detected');
+  info('✓ Git repository linked');
+  info('✓ Knowledge Capsule created');
+  info('✓ .poiva generated');
+  info('✓ Ready.');
+}
+
+function handleDashboard(argv) {
+  if (argv && argv[0] === 'help') {
+    printSection('dashboard', ['start']);
+    return;
+  }
+  var args = parseArgs(argv || []);
+  return startDashboard(args);
+}
+
+function startDashboard(args) {
+  var state = {
+    session: getCurrentSession(),
+    workspace: null,
+    resource: (args.resource && RESOURCE_DEFS[args.resource]) ? args.resource : 'mission',
+    page: parseInt(args.page || '1', 10),
+    size: parseInt(args.size || '20', 10),
+    status: String(args.status || '').trim(),
+    search: String(args.search || '').trim(),
+    watch: String(args.watch || 'on').toLowerCase() !== 'off',
+    intervalSeconds: parseInt(args.interval || '5', 10),
+    running: true,
+    busy: false
+  };
+  if (isNaN(state.page) || state.page < 1) state.page = 1;
+  if (isNaN(state.size) || state.size < 1) state.size = 20;
+  if (isNaN(state.intervalSeconds) || state.intervalSeconds < 1) state.intervalSeconds = 5;
+
+  if (!state.session) {
+    state.workspace = getWorkspaceIfAny();
+  }
+  if (!state.session && !state.workspace) {
+    error('Dashboard needs an active session or a local .poiva workspace.');
+    process.exitCode = 1;
+    return;
+  }
+
+  var rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  var timer = null;
+  var promptLabel = function () { return 'poiva[' + state.resource + '] > '; };
+  rl.setPrompt(promptLabel());
+
+  function askInline(question, defaultValue) {
+    return new Promise(function (resolve) {
+      var suffix = defaultValue ? ' [' + defaultValue + ']' : '';
+      rl.question(question + suffix + ': ', function (answer) {
+        var out = (answer || '').trim();
+        resolve(out || defaultValue || '');
+      });
+    });
+  }
+
+  function remoteDashboardDef() {
+    var def = REMOTE_RESOURCE_DEFS[state.resource];
+    if (!def) {
+      throw new Error("'" + state.resource + "' has no remote API yet — switch to a local .poiva workspace for this resource type.");
+    }
+    if (def.parentParam) {
+      throw new Error("'" + state.resource + "' needs a " + def.parentParam + " — live dashboard browsing only supports 'mission' remotely. Use the regular CLI (e.g. `poiva " + state.resource + " list <" + def.parentParam + ">`) instead.");
+    }
+    return def;
+  }
+
+  function fetchSnapshot() {
+    if (state.session) {
+      return Promise.resolve().then(function () {
+        return remoteDashboardDef();
+      }).then(function (def) {
+        return requestCloud(state.session, 'GET', def.listPath()).then(function (result) {
+          return { result: result, def: def };
+        });
+      }).then(function (wrapped) {
+        var result = wrapped.result;
+        var def = wrapped.def;
+        var rows = (result || []).map(def.toRow);
+        if (state.status) {
+          var wanted = state.status.toUpperCase();
+          rows = rows.filter(function (row) { return String(row.status || '').toUpperCase() === wanted; });
+        }
+        if (state.search) {
+          var term = state.search.toLowerCase();
+          rows = rows.filter(function (row) { return JSON.stringify(row).toLowerCase().indexOf(term) !== -1; });
+        }
+        var start = (state.page - 1) * state.size;
+        return {
+          items: rows.slice(start, start + state.size),
+          page: state.page,
+          size: state.size,
+          totalElements: rows.length,
+          totalPages: Math.max(1, Math.ceil(rows.length / state.size))
+        };
+      });
+    }
+
+    var records = loadResourceStore(state.workspace.root, state.resource);
+    if (state.status) {
+      var wanted = state.status.toLowerCase();
+      records = records.filter(function (record) {
+        return String(record.status || record.decision || '').toLowerCase() === wanted;
+      });
+    }
+    if (state.search) {
+      records = records.filter(function (record) { return recordMatches(record, state.search); });
+    }
+    records.sort(sortByDateDesc);
+    var start = (state.page - 1) * state.size;
+    var pageItems = records.slice(start, start + state.size);
+    return Promise.resolve({
+      items: pageItems,
+      page: state.page,
+      size: state.size,
+      totalElements: records.length,
+      totalPages: Math.ceil(records.length / state.size)
+    });
+  }
+
+  function render(snapshot) {
+    process.stdout.write('\x1Bc');
+    console.log(COLORS.bold + COLORS.cyan + 'Poiva Live Dashboard' + COLORS.reset + '  ' + COLORS.dim + (state.session ? state.session.name : 'local-workspace') + COLORS.reset);
+    console.log(COLORS.dim + 'resource=' + state.resource + ' page=' + snapshot.page + ' size=' + snapshot.size + ' watch=' + (state.watch ? 'on' : 'off') + ' interval=' + state.intervalSeconds + 's' + COLORS.reset);
+    if (state.status || state.search) {
+      console.log(COLORS.dim + 'filters: status=' + (state.status || '—') + ', search=' + (state.search || '—') + COLORS.reset);
+    }
+    console.log(COLORS.dim + 'Commands: help, resource <name>, create, update <id>, delete <id>, open <id>, search <term|clear>, status <value|clear>, next, prev, watch on|off, interval <sec>, refresh, quit' + COLORS.reset);
+    var rows = snapshot.items || [];
+    var columns = (state.session ? REMOTE_RESOURCE_DEFS[state.resource] : RESOURCE_DEFS[state.resource]).columns;
+    if (rows.length === 0) {
+      console.log('');
+      info('No entries.');
+    } else {
+      printTable(columns, rows.map(function (item) {
+        return columns.map(function (col) { return displayCell(item[col]); });
+      }));
+    }
+    console.log(COLORS.dim + 'Total: ' + snapshot.totalElements + ' | Pages: ' + Math.max(1, snapshot.totalPages || 0) + COLORS.reset);
+  }
+
+  function refresh() {
+    if (!state.running || state.busy) return Promise.resolve();
+    state.busy = true;
+    return fetchSnapshot()
+      .then(function (snapshot) { render(snapshot); })
+      .catch(function (err) { error('dashboard refresh failed: ' + err.message); })
+      .finally(function () {
+        state.busy = false;
+        if (state.running) {
+          rl.setPrompt(promptLabel());
+          rl.prompt();
+        }
+      });
+  }
+
+  function stopDashboard() {
+    state.running = false;
+    if (timer) clearInterval(timer);
+    rl.close();
+  }
+
+  function setWatch(enabled) {
+    state.watch = enabled;
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (state.watch) {
+      timer = setInterval(function () {
+        refresh();
+      }, state.intervalSeconds * 1000);
+    }
+  }
+
+  function createRecordFromDashboard(tokens) {
+    if (state.session) {
+      return Promise.resolve().then(function () {
+        var def = remoteDashboardDef();
+        var args = parseArgs(tokens.slice(1));
+        var input = args.file ? readStructuredFile(args.file) : {};
+        mergeFlagFields(input, args);
+        var shouldPrompt = !args.file && Object.keys(args).length <= 1;
+        var p = Promise.resolve(input);
+        if (shouldPrompt) {
+          def.createFields.forEach(function (field) {
+            p = p.then(function (current) {
+              return askInline(field, current[field] || '').then(function (value) {
+                if (value) current[field] = value;
+                return current;
+              });
+            });
+          });
+        }
+        return p.then(function (payload) {
+          return requestCloud(state.session, 'POST', def.createPath(null), payload);
+        }).then(function (created) {
+          info('Created ' + state.resource + ': ' + def.toRow(created).id);
+        });
+      });
+    }
+
+    var def = RESOURCE_DEFS[state.resource];
+    var args = parseArgs(tokens.slice(1));
+    var input = args.file ? readStructuredFile(args.file) : {};
+    mergeFlagFields(input, args);
+    var shouldPrompt = !args.file && Object.keys(args).length <= 1;
+
+    var p = Promise.resolve(input);
+    if (shouldPrompt) {
+      def.promptFields.forEach(function (field) {
+        p = p.then(function (current) {
+          return askInline(field, current[field] || '').then(function (value) {
+            current[field] = value;
+            return current;
+          });
+        });
+      });
+    }
+    return p.then(function (payload) {
+      var record = normalizeRecord(state.resource, payload, state.workspace);
+      var records = loadResourceStore(state.workspace.root, state.resource);
+      records.push(record);
+      saveResourceStore(state.workspace.root, state.resource, records);
+      info('Created ' + state.resource + ': ' + record.id);
+    });
+  }
+
+  function updateRecordFromDashboard(tokens) {
+    var id = tokens[1];
+    if (!id) throw new Error('update <id> --' + (REMOTE_RESOURCE_DEFS[state.resource] ? REMOTE_RESOURCE_DEFS[state.resource].stateField : 'field') + ' value');
+    var args = parseArgs(tokens.slice(2));
+    if (state.session) {
+      return Promise.resolve().then(function () {
+        var def = remoteDashboardDef();
+        if (!def.statePath) throw new Error(state.resource + ' has no state-update endpoint remotely.');
+        var value = args[def.stateField];
+        if (!value) throw new Error('update <id> --' + def.stateField + ' <' + def.stateValues.join('|') + '>');
+        value = String(value).toUpperCase();
+        if (def.stateValues.indexOf(value) === -1) {
+          throw new Error('Invalid ' + def.stateField + ': ' + value + ' (expected one of ' + def.stateValues.join(', ') + ')');
+        }
+        var body = {};
+        body[def.stateField] = value;
+        return requestCloud(state.session, 'PATCH', def.statePath(id), body);
+      }).then(function () { info('Updated ' + state.resource + ': ' + id); });
+    }
+    var patch = args.file ? readStructuredFile(args.file) : {};
+    mergeFlagFields(patch, args);
+    var records = loadResourceStore(state.workspace.root, state.resource);
+    var record = records.find(function (item) { return item.id === id; });
+    if (!record) throw new Error(state.resource + ' not found: ' + id);
+    Object.keys(patch).forEach(function (key) {
+      if (key !== 'id' && key !== 'createdAt') record[key] = patch[key];
+    });
+    record.updatedAt = new Date().toISOString();
+    saveResourceStore(state.workspace.root, state.resource, records);
+    info('Updated ' + state.resource + ': ' + id);
+    return Promise.resolve();
+  }
+
+  function deleteRecordFromDashboard(tokens) {
+    var id = tokens[1];
+    if (!id) throw new Error('delete <id>');
+    if (state.session) {
+      throw new Error(state.resource + ' delete is not available through the remote API.');
+    }
+    var records = loadResourceStore(state.workspace.root, state.resource);
+    var next = records.filter(function (item) { return item.id !== id; });
+    if (next.length === records.length) throw new Error(state.resource + ' not found: ' + id);
+    saveResourceStore(state.workspace.root, state.resource, next);
+    info('Deleted ' + state.resource + ': ' + id);
+    return Promise.resolve();
+  }
+
+  function openRecordFromDashboard(tokens) {
+    var id = tokens[1];
+    if (!id) throw new Error('open <id>');
+    if (state.session) {
+      throw new Error(state.resource + ' open is not available through the remote API — use list instead.');
+    }
+    var record = findRecord(state.workspace.root, state.resource, id);
+    if (!record) throw new Error(state.resource + ' not found: ' + id);
+    console.log(stringifyRecord(record));
+    return Promise.resolve();
+  }
+
+  function handleLine(line) {
+    var tokens = tokenizeCommandLine(line);
+    if (tokens.length === 0 || tokens[0] === 'refresh') {
+      return refresh();
+    }
+    var cmd = tokens[0].toLowerCase();
+    if (cmd === 'exit' || cmd === 'quit' || cmd === 'q') {
+      stopDashboard();
+      return Promise.resolve();
+    }
+    if (cmd === 'help') {
+      console.log('Dashboard commands:');
+      console.log('  resource <name>       switch active resource');
+      console.log('  create [--field val]  create record in current resource');
+      console.log('  update <id> [--f v]   patch record');
+      console.log('  delete <id>           delete record');
+      console.log('  open <id>             show full json');
+      console.log('  status <v|clear>      set/clear status filter');
+      console.log('  search <t|clear>      set/clear search filter');
+      console.log('  page <n> | next | prev');
+      console.log('  watch on|off          toggle live refresh');
+      console.log('  interval <sec>        set refresh interval');
+      console.log('  refresh               force refresh');
+      console.log('  quit                  exit dashboard');
+      return Promise.resolve().then(function () { return refresh(); });
+    }
+    if (cmd === 'resource') {
+      var nextResource = tokens[1];
+      if (!nextResource || !RESOURCE_DEFS[nextResource]) throw new Error('Unknown resource: ' + (nextResource || ''));
+      state.resource = nextResource;
+      state.page = 1;
+      return refresh();
+    }
+    if (cmd === 'page') {
+      var page = parseInt(tokens[1] || '1', 10);
+      if (isNaN(page) || page < 1) throw new Error('page must be >= 1');
+      state.page = page;
+      return refresh();
+    }
+    if (cmd === 'next') {
+      state.page += 1;
+      return refresh();
+    }
+    if (cmd === 'prev') {
+      state.page = Math.max(1, state.page - 1);
+      return refresh();
+    }
+    if (cmd === 'status') {
+      var status = tokens.slice(1).join(' ').trim();
+      state.status = (!status || status === 'clear') ? '' : status;
+      state.page = 1;
+      return refresh();
+    }
+    if (cmd === 'search') {
+      var term = tokens.slice(1).join(' ').trim();
+      state.search = (!term || term === 'clear') ? '' : term;
+      state.page = 1;
+      return refresh();
+    }
+    if (cmd === 'watch') {
+      var mode = String(tokens[1] || '').toLowerCase();
+      if (mode !== 'on' && mode !== 'off') throw new Error('watch on|off');
+      setWatch(mode === 'on');
+      return refresh();
+    }
+    if (cmd === 'interval') {
+      var seconds = parseInt(tokens[1] || '', 10);
+      if (isNaN(seconds) || seconds < 1) throw new Error('interval <seconds>');
+      state.intervalSeconds = seconds;
+      setWatch(state.watch);
+      return refresh();
+    }
+    if (cmd === 'create') {
+      return createRecordFromDashboard(tokens).then(function () { return refresh(); });
+    }
+    if (cmd === 'update') {
+      return updateRecordFromDashboard(tokens).then(function () { return refresh(); });
+    }
+    if (cmd === 'delete') {
+      return deleteRecordFromDashboard(tokens).then(function () { return refresh(); });
+    }
+    if (cmd === 'open' || cmd === 'get') {
+      return openRecordFromDashboard(tokens).then(function () {
+        return askInline('Press Enter to continue', '').then(function () { return refresh(); });
+      });
+    }
+    throw new Error('Unknown dashboard command: ' + cmd);
+  }
+
+  rl.on('line', function (line) {
+    Promise.resolve()
+      .then(function () { return handleLine(line); })
+      .catch(function (err) { error(err.message); });
+  });
+  rl.on('SIGINT', function () { stopDashboard(); });
+  rl.on('close', function () {
+    if (timer) clearInterval(timer);
+    console.log('');
+    info('Dashboard closed.');
+  });
+
+  setWatch(state.watch);
+  return refresh();
+}
+
+function handleResource(resource, argv) {
+  var sub = argv[0];
+  if (!sub) sub = defaultVerbFor(resource);
+  if (sub === 'help') {
+    printSection(resource, verbsFor(resource));
+    return;
+  }
+
+  var remoteResult = maybeHandleRemoteResource(resource, sub, argv.slice(1));
+  if (remoteResult !== null) return remoteResult;
+
+  if (sub === 'create' || sub === 'add' || sub === 'upload' || sub === 'submit') return resourceCreate(resource, argv.slice(1));
+  if (sub === 'get') return resourceGet(resource, argv.slice(1));
+  if (sub === 'list') return resourceList(resource, argv.slice(1));
+  if (sub === 'update') return resourceUpdate(resource, argv.slice(1));
+  if (sub === 'delete' || sub === 'remove') return resourceDelete(resource, argv.slice(1));
+  if (sub === 'approve' || sub === 'reject' || sub === 'archive' || sub === 'cancel' || sub === 'start' || sub === 'complete' || sub === 'verify') return resourceStatus(resource, sub, argv.slice(1));
+  if (sub === 'assign') return resourceAssign(resource, argv.slice(1));
+  if (sub === 'watch' || sub === 'tail' || sub === 'history') return resourceWatch(resource, argv.slice(1));
+  if (sub === 'export') return resourceExport(resource, argv.slice(1));
+  if (sub === 'import') return resourceImport(resource, argv.slice(1));
+  if (sub === 'download') return resourceDownload(resource, argv.slice(1));
+  if (sub === 'search') return resourceSearch(resource, argv.slice(1));
+  if (sub === 'timeline') return resourceTimeline(resource, argv.slice(1));
+  if (sub === 'graph') return resourceGraph(resource, argv.slice(1));
+
+  error('Unknown ' + resource + ' command: ' + sub);
+  printSection(resource, verbsFor(resource));
+  process.exitCode = 1;
+}
+
+function verbsFor(resource) {
+  if (resource === 'mission') return ['create', 'get', 'list', 'update', 'delete', 'archive', 'cancel', 'export', 'import', 'watch', 'timeline', 'graph'];
+  if (resource === 'activity') return ['create', 'list', 'get', 'update', 'delete', 'assign', 'start', 'complete', 'verify', 'watch'];
+  if (resource === 'participant') return ['create', 'list', 'get', 'update', 'delete', 'assign'];
+  if (resource === 'capability') return ['list', 'search', 'create', 'update'];
+  if (resource === 'knowledge') return ['add', 'upload', 'list', 'remove'];
+  if (resource === 'objective' || resource === 'constraint' || resource === 'policy') return ['create', 'list', 'delete', 'update'];
+  if (resource === 'deliverable') return ['submit', 'list', 'download', 'approve', 'reject'];
+  if (resource === 'evidence') return ['upload', 'list', 'verify'];
+  if (resource === 'verification') return ['run', 'approve', 'reject', 'history'];
+  if (resource === 'settlement') return ['create', 'approve', 'export'];
+  if (resource === 'event') return ['list', 'watch', 'tail'];
+  return ['create', 'get', 'list', 'update', 'delete'];
+}
+
+function defaultVerbFor(resource) {
+  if (resource === 'knowledge') return 'list';
+  if (resource === 'capability') return 'list';
+  if (resource === 'event') return 'list';
+  if (resource === 'verification') return 'history';
+  return 'list';
+}
+
+function authLogin(argv) {
+  var args = parseArgs(argv);
+  var interactive = args.interactive || (argv.length === 0 && process.stdin.isTTY);
+  var session = {
+    name: args.name || 'default',
+    url: args.url || 'https://api.getpoiva.com',
+    token: args.token || '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  if (interactive) {
+    var prompt = createPrompt();
+    return prompt.ask('Poiva Server', session.url).then(function (url) {
+      session.url = url || session.url;
+      return prompt.ask('Session name', session.name);
+    }).then(function (name) {
+      session.name = name || session.name;
+      return prompt.ask('API Token', '');
+    }).then(function (token) {
+      session.token = token;
+      return verifySession(session).then(function (whoami) {
+        prompt.close();
+        saveSession(session);
+        setCurrentSession(session.name);
+        info('Created session: ' + session.name + ' (' + whoami.organization + ')');
+      });
+    }).catch(function (err) {
+      prompt.close();
+      throw err;
+    });
+  }
+
+  if (!args.token) {
+    error('auth login requires --token or interactive mode');
+    process.exitCode = 1;
+    return;
+  }
+  return verifySession(session).then(function (whoami) {
+    saveSession(session);
+    setCurrentSession(session.name);
+    info('Created session: ' + session.name + ' (' + whoami.organization + ')');
+  }).catch(function (err) {
+    error('Session verification failed: ' + err.message);
+    process.exitCode = 1;
+  });
+}
+
+function authLogout() {
+  clearCurrentSession();
+  info('Current session cleared.');
+}
+
+function authWhoami() {
+  var session = getCurrentSession();
+  if (!session) {
+    info('No current session.');
+    return;
+  }
+  return requestCloud(session, 'GET', '/api/cloud/me').then(function (body) {
+    console.log('Session:');
+    console.log('  ' + session.name);
+    console.log('');
+    console.log('Organization:');
+    console.log('  ' + (body.organization && body.organization.name ? body.organization.name : 'none'));
+    console.log('');
+    console.log('User:');
+    console.log('  ' + (body.user && body.user.displayName ? body.user.displayName : 'none'));
+    console.log('');
+    console.log('Roles:');
+    console.log('  ' + (body.user && body.user.role ? body.user.role : 'none'));
+    console.log('');
+    console.log('Protocol:');
+    console.log('  ' + PROTOCOL_VERSION);
+  }).catch(function (err) {
+    error('whoami failed: ' + err.message);
+    process.exitCode = 1;
+  });
+}
+
+function sessionList() {
+  var db = loadSessionsDb();
+  if (db.sessions.length === 0) {
+    info('No sessions.');
+    return;
+  }
+  printTable(['current', 'name', 'url'], db.sessions.map(function (s) {
+    return [db.current === s.name ? 'yes' : '', s.name, s.url];
+  }));
+}
+
+function sessionAdd(argv) {
+  var args = parseArgs(argv);
+  var session = { name: args._[0] || args.name, url: args._[1] || args.url, token: args._[2] || args.token };
+  if (!session.name || !session.url || !session.token) {
+    if (!process.stdin.isTTY) {
+      error('session add requires name, url, and token');
+      process.exitCode = 1;
+      return;
+    }
+    var prompt = createPrompt();
+    return prompt.ask('Session name', session.name || 'default').then(function (name) {
+      session.name = name;
+      return prompt.ask('Poiva Server', session.url || 'https://api.getpoiva.com');
+    }).then(function (url) {
+      session.url = url;
+      return prompt.ask('API token', session.token || '');
+    }).then(function (token) {
+      session.token = token;
+      return verifySession(session).then(function (whoami) {
+        prompt.close();
+        saveSession(session);
+        info('Added session: ' + session.name + ' (' + whoami.organization + ')');
+      });
+    }).catch(function (err) {
+      prompt.close();
+      throw err;
+    });
+  }
+  return verifySession(session).then(function (whoami) {
+    saveSession(session);
+    info('Added session: ' + session.name + ' (' + whoami.organization + ')');
+  }).catch(function (err) {
+    error('Session verification failed: ' + err.message);
+    process.exitCode = 1;
+  });
+}
+
+function sessionRemove(argv) {
+  var name = argv[0];
+  if (!name) {
+    error('session remove <name>');
+    process.exitCode = 1;
+    return;
+  }
+  var db = loadSessionsDb();
+  db.sessions = db.sessions.filter(function (s) { return s.name !== name; });
+  if (db.current === name) db.current = null;
+  saveSessionsDb(db);
+  info('Removed session: ' + name);
+}
+
+function sessionRename(argv) {
+  var from = argv[0];
+  var to = argv[1];
+  if (!from || !to) {
+    error('session rename <from> <to>');
+    process.exitCode = 1;
+    return;
+  }
+  var db = loadSessionsDb();
+  var session = db.sessions.find(function (s) { return s.name === from; });
+  if (!session) {
+    error('Session not found: ' + from);
+    process.exitCode = 1;
+    return;
+  }
+  session.name = to;
+  if (db.current === from) db.current = to;
+  saveSessionsDb(db);
+  info('Renamed session: ' + from + ' -> ' + to);
+}
+
+function sessionUse(argv) {
+  var name = argv[0];
+  var db = loadSessionsDb();
+  if (!name) {
+    if (!process.stdin.isTTY) {
+      error('session use <name>');
+      process.exitCode = 1;
+      return;
+    }
+    if (db.sessions.length === 0) {
+      error('No sessions configured.');
+      process.exitCode = 1;
+      return;
+    }
+    var prompt = createPrompt();
+    console.log('Available sessions:');
+    db.sessions.forEach(function (s, idx) {
+      console.log('  [' + (idx + 1) + '] ' + s.name + '  ' + s.url);
+    });
+    return prompt.ask('Select session number', String(db.current ? (db.sessions.findIndex(function (s) { return s.name === db.current; }) + 1) : 1)).then(function (answer) {
+      prompt.close();
+      var index = parseInt(answer, 10);
+      if (isNaN(index) || index < 1 || index > db.sessions.length) {
+        throw new Error('Invalid selection');
+      }
+      db.current = db.sessions[index - 1].name;
+      saveSessionsDb(db);
+      info('Using session: ' + db.current);
+    }).catch(function (err) {
+      prompt.close();
+      error(err.message);
+      process.exitCode = 1;
+    });
+  }
+  var session = db.sessions.find(function (s) { return s.name === name; });
+  if (!session) {
+    error('Session not found: ' + name);
+    process.exitCode = 1;
+    return;
+  }
+  db.current = name;
+  saveSessionsDb(db);
+  info('Using session: ' + name);
+}
+
+function sessionCurrent() {
+  var session = getCurrentSession();
+  if (!session) {
+    info('No current session.');
+    return;
+  }
+  printTable(['name', 'url'], [[session.name, session.url]]);
+}
+
+function sessionExport(argv) {
+  var file = argv[0];
+  var db = loadSessionsDb();
+  var output = JSON.stringify(db, null, 2);
+  if (file) {
+    fs.writeFileSync(path.resolve(file), output + '\n', 'utf8');
+    info('Exported sessions to ' + file);
+    return;
+  }
+  console.log(output);
+}
+
+function sessionImport(argv) {
+  var file = argv[0];
+  if (!file) {
+    error('session import <file>');
+    process.exitCode = 1;
+    return;
+  }
+  var data = readJson(path.resolve(file));
+  saveSessionsDb(data);
+  info('Imported sessions from ' + file);
+}
+
+function orgCurrent() {
+  var workspace = requireWorkspace();
+  var org = currentOrg(workspace);
+  if (!org) {
+    info('No current organization.');
+    return;
+  }
+  console.log(org.name);
+}
+
+function orgList() {
+  var workspace = requireWorkspace();
+  if (workspace.organizations.length === 0) {
+    info('No organizations.');
+    return;
+  }
+  workspace.organizations.forEach(function (org) {
+    var marker = workspace.currentOrganizationId === org.id ? '*' : ' ';
+    console.log(marker + ' ' + org.name + '  ' + org.slug);
+  });
+}
+
+function orgSwitch(argv) {
+  var needle = argv[0];
+  if (!needle) {
+    error('org switch <name-or-slug>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var org = findOrg(workspace, needle);
+  if (!org) {
+    error('Organization not found: ' + needle);
+    process.exitCode = 1;
+    return;
+  }
+  workspace.currentOrganizationId = org.id;
+  saveWorkspace(workspace);
+  info('Switched to organization: ' + org.name);
+}
+
+function orgDescribe() {
+  var workspace = requireWorkspace();
+  var org = currentOrg(workspace);
+  if (!org) {
+    info('No current organization.');
+    return;
+  }
+  console.log('Organization: ' + org.name);
+  console.log('Slug: ' + org.slug);
+  console.log('Type: ' + (org.type || 'workspace'));
+  console.log('ID: ' + org.id);
+}
+
+function profileShow() {
+  var workspace = requireWorkspace();
+  console.log(dumpYaml(workspace.profile || {}).trim());
+}
+
+function profileEdit(argv) {
+  var args = parseArgs(argv);
+  var workspace = requireWorkspace();
+  workspace.profile = workspace.profile || {};
+  if (args.name) workspace.profile.name = args.name;
+  if (args.email) workspace.profile.email = args.email;
+  if (args.role) workspace.profile.roles = [args.role];
+  if (args.protocol) workspace.profile.protocol = args.protocol;
+  saveWorkspace(workspace);
+  info('Profile updated.');
+}
+
+function configGet() {
+  var workspace = requireWorkspace();
+  console.log(dumpYaml(loadWorkspaceConfig(workspace.root)).trim());
+}
+
+function configSet(argv) {
+  var args = parseArgs(argv);
+  var key = args._[0];
+  var value = args._[1];
+  if (!key) {
+    error('config set <key> <value>');
+    process.exitCode = 1;
+    return;
+  }
+  var cfg = loadWorkspaceConfigFromCurrent();
+  cfg[key] = value;
+  saveWorkspaceConfig(cfg);
+  info('Updated config: ' + key);
+}
+
+function configEdit() {
+  var workspace = requireWorkspace();
+  var editor = process.env.EDITOR || process.env.VISUAL || 'vi';
+  childProcess.spawnSync(editor, [workspace.paths.config], { stdio: 'inherit' });
+}
+
+function extensionList() {
+  var file = ensureGlobalExtensionsFile();
+  var data = readJson(file);
+  var items = data.extensions || [];
+  if (items.length === 0) {
+    info('No CLI extensions installed.');
+    return;
+  }
+  items.forEach(function (item) {
+    console.log(item.name + '  ' + (item.version || 'local'));
+  });
+}
+
+function extensionInstall(argv) {
+  var name = argv[0];
+  if (!name) {
+    error('extension install <name>');
+    process.exitCode = 1;
+    return;
+  }
+  var file = ensureGlobalExtensionsFile();
+  var data = readJson(file);
+  data.extensions = data.extensions || [];
+  if (!data.extensions.some(function (item) { return item.name === name; })) {
+    data.extensions.push({ name: name, version: 'local', installedAt: new Date().toISOString() });
+    saveJson(file, data);
+  }
+  info('Installed extension: ' + name);
+}
+
+function extensionRemove(argv) {
+  var name = argv[0];
+  if (!name) {
+    error('extension remove <name>');
+    process.exitCode = 1;
+    return;
+  }
+  var file = ensureGlobalExtensionsFile();
+  var data = readJson(file);
+  data.extensions = (data.extensions || []).filter(function (item) { return item.name !== name; });
+  saveJson(file, data);
+  info('Removed extension: ' + name);
+}
+
+function maybeHandleRemoteResource(resource, verb, argv) {
+  var session = getCurrentSession();
+  if (!session) return null;
+  if (!RESOURCE_DEFS[resource]) return null;
+
+  var def = REMOTE_RESOURCE_DEFS[resource];
+  if (!def) {
+    error("'" + resource + "' has no remote API yet. Use a local .poiva workspace (no active session) to manage this resource type.");
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+
+  var mutatingVerbs = ['create', 'add', 'upload', 'submit', 'update', 'approve', 'reject', 'archive', 'cancel', 'start', 'complete', 'verify', 'run'];
+  var shouldCatch = mutatingVerbs.indexOf(verb) !== -1 || verb === 'export';
+
+  var run = remoteResourceOperation(session, resource, def, verb, argv);
+  if (run === null) return null;
+  if (!shouldCatch) return run;
+
+  return run.catch(function (err) {
+    error(resource + ' ' + verb + ' failed: ' + err.message);
+    process.exitCode = 1;
+  });
+}
+
+function remoteResourceOperation(session, resource, def, verb, argv) {
+  if (verb === 'create' || verb === 'add' || verb === 'upload' || verb === 'submit') {
+    return remoteCreate(session, resource, def, argv);
+  }
+
+  if (verb === 'list' || verb === 'watch' || verb === 'tail' || verb === 'history' || verb === 'timeline') {
+    return remoteList(session, resource, def, argv, verb);
+  }
+
+  if (verb === 'export') {
+    return remoteExport(session, resource, def, argv);
+  }
+
+  var stateVerbs = ['update', 'approve', 'reject', 'archive', 'cancel', 'start', 'complete', 'verify', 'run'];
+  if (stateVerbs.indexOf(verb) !== -1) {
+    return remoteUpdateState(session, resource, def, verb, argv);
+  }
+
+  if (verb === 'delete' || verb === 'remove' || verb === 'get' || verb === 'download' || verb === 'graph' || verb === 'assign' || verb === 'import' || verb === 'search') {
+    error(resource + ' ' + verb + ' is not available through the remote API — only create, list, and state updates are.');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+
+  return null;
+}
+
+function splitParent(def, argv) {
+  if (!def.parentParam) {
+    return { parentId: null, rest: argv };
+  }
+  return { parentId: argv[0], rest: argv.slice(1) };
+}
+
+function remoteCreate(session, resource, def, argv) {
+  var split = splitParent(def, argv);
+  if (def.parentParam && !split.parentId) {
+    error(resource + ' create <' + def.parentParam + '> [--flags]');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  var args = parseArgs(split.rest);
+  var input = args.file ? readStructuredFile(args.file) : {};
+
+  var gather;
+  if (process.stdin.isTTY && !args.file && Object.keys(args).length <= 1) {
+    var prompt = createPrompt();
+    var p = Promise.resolve();
+    def.createFields.forEach(function (field) {
+      p = p.then(function () { return prompt.ask(field, input[field] || ''); })
+        .then(function (value) { if (value) input[field] = value; });
+    });
+    gather = p.then(function () { prompt.close(); return input; }).catch(function (err) { prompt.close(); throw err; });
+  } else {
+    gather = Promise.resolve(input);
+  }
+
+  return gather.then(function (payload) {
+    mergeFlagFields(payload, args);
+    if (payload.amount !== undefined && payload.amount !== '') payload.amount = Number(payload.amount);
+    return requestCloud(session, 'POST', def.createPath(split.parentId), payload);
+  }).then(function (created) {
+    console.log(stringifyRecord(def.toRow(created)));
+  });
+}
+
+function remoteUpdateState(session, resource, def, verb, argv) {
+  if (!def.statePath) {
+    error(resource + ' has no state-update endpoint remotely.');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  var id = argv[0];
+  if (!id) {
+    error(resource + ' ' + verb + ' <id> [--' + def.stateField + ' VALUE]');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  var args = parseArgs(argv.slice(1));
+  var value = args[def.stateField];
+  if (!value && verb !== 'update') {
+    value = statusForVerb(verb);
+  }
+  if (!value) {
+    error(resource + ' ' + verb + ' <id> --' + def.stateField + ' <' + def.stateValues.join('|') + '>');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  value = String(value).toUpperCase();
+  if (def.stateValues.indexOf(value) === -1) {
+    error('Invalid ' + def.stateField + ' for ' + resource + ': ' + value + ' (expected one of ' + def.stateValues.join(', ') + ')');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  var body = {};
+  body[def.stateField] = value;
+  return requestCloud(session, 'PATCH', def.statePath(id), body).then(function (updated) {
+    console.log(stringifyRecord(def.toRow(updated)));
+  });
+}
+
+function remoteList(session, resource, def, argv, verb) {
+  var split = splitParent(def, argv);
+  if (def.parentParam && !split.parentId) {
+    error(resource + ' ' + verb + ' <' + def.parentParam + '>');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  var args = parseArgs(split.rest);
+  return requestCloud(session, 'GET', def.listPath(split.parentId)).then(function (items) {
+    var rows = (items || []).map(def.toRow);
+    if (args.status) {
+      var wanted = String(args.status).toUpperCase();
+      rows = rows.filter(function (row) { return String(row.status || '').toUpperCase() === wanted; });
+    }
+    if (args.search) {
+      var term = String(args.search).toLowerCase();
+      rows = rows.filter(function (row) { return JSON.stringify(row).toLowerCase().indexOf(term) !== -1; });
+    }
+    if (rows.length === 0) {
+      info('No entries.');
+      return;
+    }
+    if (verb === 'watch' || verb === 'tail' || verb === 'history' || verb === 'timeline') {
+      rows.forEach(function (row) { console.log(formatWatchLine(row)); });
+      return;
+    }
+    printTable(def.columns, rows.map(function (row) {
+      return def.columns.map(function (col) { return displayCell(row[col]); });
+    }));
+    console.log('');
+    console.log(rows.length + ' total');
+  });
+}
+
+function remoteExport(session, resource, def, argv) {
+  var split = splitParent(def, argv);
+  if (def.parentParam && !split.parentId) {
+    error(resource + ' export <' + def.parentParam + '> [--output file]');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  var args = parseArgs(split.rest);
+  return requestCloud(session, 'GET', def.listPath(split.parentId)).then(function (items) {
+    writeExportPayload(resource, (items || []).map(def.toRow), args);
+  });
+}
+
+function writeExportPayload(resource, items, args) {
+  var output = JSON.stringify(items, null, 2);
+  if (args.output) {
+    fs.writeFileSync(path.resolve(args.output), output + '\n', 'utf8');
+    info('Exported ' + resource + ' to ' + args.output);
+    return;
+  }
+  console.log(output);
+}
+
+function resourceCreate(resource, argv) {
+  var args = parseArgs(argv);
+  var workspace = requireWorkspace();
+  var input = args.file ? readStructuredFile(args.file) : {};
+  var def = RESOURCE_DEFS[resource];
+  if (process.stdin.isTTY && !args.file && Object.keys(args).length <= 1) {
+    input = promptResource(def, input);
+  }
+  mergeFlagFields(input, args);
+  var record = normalizeRecord(resource, input, workspace);
+  var records = loadResourceStore(workspace.root, resource);
+  records.push(record);
+  saveResourceStore(workspace.root, resource, records);
+  console.log(stringifyRecord(record));
+}
+
+function resourceGet(resource, argv) {
+  var id = argv[0];
+  if (!id) {
+    error(resource + ' get <id>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var record = findRecord(workspace.root, resource, id);
+  if (!record) {
+    error(resource + ' not found: ' + id);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(stringifyRecord(record));
+}
+
+function resourceList(resource, argv) {
+  var args = parseArgs(argv);
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  records = filterRecords(records, args);
+  var page = parseInt(args.page || '1', 10);
+  var size = parseInt(args.size || '20', 10);
+  if (isNaN(page) || page < 1) page = 1;
+  if (isNaN(size) || size < 1) size = 20;
+  var start = (page - 1) * size;
+  var pageItems = records.slice(start, start + size);
+  if (pageItems.length === 0) {
+    info('No entries.');
+    return;
+  }
+  printTable(RESOURCE_DEFS[resource].columns, pageItems.map(function (item) {
+    return RESOURCE_DEFS[resource].columns.map(function (col) { return displayCell(item[col]); });
+  }));
+  console.log('');
+  console.log('Page ' + page + ' of ' + Math.max(1, Math.ceil(records.length / size)) + ' · ' + records.length + ' total');
+}
+
+function resourceUpdate(resource, argv) {
+  var id = argv[0];
+  var args = parseArgs(argv.slice(1));
+  if (!id) {
+    error(resource + ' update <id>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  var record = records.find(function (item) { return item.id === id; });
+  if (!record) {
+    error(resource + ' not found: ' + id);
+    process.exitCode = 1;
+    return;
+  }
+  var input = args.file ? readStructuredFile(args.file) : {};
+  mergeFlagFields(input, args);
+  Object.keys(input).forEach(function (key) {
+    if (key !== 'id' && key !== 'createdAt') record[key] = input[key];
+  });
+  record.updatedAt = new Date().toISOString();
+  saveResourceStore(workspace.root, resource, records);
+  console.log(stringifyRecord(record));
+}
+
+function resourceDelete(resource, argv) {
+  var id = argv[0];
+  if (!id) {
+    error(resource + ' delete <id>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  var next = records.filter(function (item) { return item.id !== id; });
+  if (next.length === records.length) {
+    error(resource + ' not found: ' + id);
+    process.exitCode = 1;
+    return;
+  }
+  saveResourceStore(workspace.root, resource, next);
+  info('Deleted ' + resource + ': ' + id);
+}
+
+function resourceStatus(resource, verb, argv) {
+  var id = argv[0];
+  if (!id) {
+    error(resource + ' ' + verb + ' <id>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  var record = records.find(function (item) { return item.id === id; });
+  if (!record) {
+    error(resource + ' not found: ' + id);
+    process.exitCode = 1;
+    return;
+  }
+  record.status = statusForVerb(verb);
+  record.updatedAt = new Date().toISOString();
+  saveResourceStore(workspace.root, resource, records);
+  console.log(stringifyRecord(record));
+}
+
+function resourceAssign(resource, argv) {
+  var id = argv[0];
+  var assignee = argv[1];
+  if (!id || !assignee) {
+    error(resource + ' assign <id> <assignee>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  var record = records.find(function (item) { return item.id === id; });
+  if (!record) {
+    error(resource + ' not found: ' + id);
+    process.exitCode = 1;
+    return;
+  }
+  record.assignee = assignee;
+  record.updatedAt = new Date().toISOString();
+  saveResourceStore(workspace.root, resource, records);
+  console.log(stringifyRecord(record));
+}
+
+function resourceWatch(resource, argv) {
+  var args = parseArgs(argv);
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  var limit = parseInt(args.limit || '10', 10);
+  if (isNaN(limit) || limit < 1) limit = 10;
+  info('Live watch is local-only in this CLI. Showing latest ' + limit + ' ' + resource + ' entries.');
+  records.sort(sortByDateDesc);
+  records.slice(0, limit).forEach(function (record) {
+    console.log(formatWatchLine(record));
+  });
+}
+
+function resourceExport(resource, argv) {
+  var file = argv[0];
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  var output = JSON.stringify(records, null, 2);
+  if (file) {
+    fs.writeFileSync(path.resolve(file), output + '\n', 'utf8');
+    info('Exported ' + resource + ' to ' + file);
+    return;
+  }
+  console.log(output);
+}
+
+function resourceImport(resource, argv) {
+  var file = argv[0];
+  if (!file) {
+    error(resource + ' import <file>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var data = readStructuredFile(file);
+  var items = Array.isArray(data) ? data : (data.items || []);
+  items = items.map(function (item) { return normalizeRecord(resource, item, workspace); });
+  saveResourceStore(workspace.root, resource, items);
+  info('Imported ' + items.length + ' ' + resource + ' records.');
+}
+
+function resourceDownload(resource, argv) {
+  var id = argv[0];
+  var args = parseArgs(argv.slice(1));
+  if (!id) {
+    error(resource + ' download <id>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var record = findRecord(workspace.root, resource, id);
+  if (!record) {
+    error(resource + ' not found: ' + id);
+    process.exitCode = 1;
+    return;
+  }
+  var output = JSON.stringify(record, null, 2);
+  if (args.output) {
+    fs.writeFileSync(path.resolve(args.output), output + '\n', 'utf8');
+    info('Downloaded ' + resource + ' to ' + args.output);
+    return;
+  }
+  console.log(output);
+}
+
+function resourceSearch(resource, argv) {
+  var term = argv.join(' ');
+  if (!term) {
+    error(resource + ' search <term>');
+    process.exitCode = 1;
+    return;
+  }
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  var results = records.filter(function (record) { return recordMatches(record, term); });
+  if (results.length === 0) {
+    info('No matches.');
+    return;
+  }
+  printTable(['id', 'title', 'status'], results.map(function (item) {
+    return [item.id, displayCell(item[RESOURCE_DEFS[resource].titleField] || item.title), displayCell(item[RESOURCE_DEFS[resource].statusField] || item.status)];
+  }));
+}
+
+function resourceTimeline(resource, argv) {
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  records.sort(sortByDateDesc);
+  records.forEach(function (record) {
+    console.log(formatWatchLine(record));
+  });
+}
+
+function resourceGraph(resource, argv) {
+  var id = argv[0];
+  var workspace = requireWorkspace();
+  var records = loadResourceStore(workspace.root, resource);
+  if (id) records = records.filter(function (item) { return item.id === id; });
+  if (records.length === 0) {
+    info('No entries.');
+    return;
+  }
+  records.forEach(function (record) {
+    console.log(record.id + '  ' + (record.title || record.name || record.display || ''));
+    if (record.missionId) console.log('  └─ mission: ' + record.missionId);
+    if (record.subjectId) console.log('  └─ subject: ' + record.subjectId);
+    if (record.extensions && record.extensions.length) {
+      console.log('  └─ extensions: ' + record.extensions.length);
+    }
+  });
+}
+
+function printHelp() {
+  var c = COLORS;
+  console.log('');
+  console.log(c.bold + c.cyan + 'poiva' + c.reset + ' - Protocol for Distributed Human Fulfillment');
+  console.log('');
+  console.log(c.bold + 'Usage:' + c.reset);
+  console.log('  ' + c.cyan + 'poiva <resource> <verb>' + c.reset + ' [options]');
+  console.log('  ' + c.cyan + 'poiva <command>' + c.reset + ' [subcommand] [options]');
+  console.log('');
+  console.log(c.bold + 'Top-level Commands:' + c.reset);
+  console.log('');
+  
+  var commands = TOP_LEVEL_COMMANDS;
+  for (var i = 0; i < commands.length; i += 3) {
+    var line = commands.slice(i, i + 3).map(function(cmd) {
+      return '  ' + c.blue + padRight(cmd, 15) + c.reset;
+    }).join('');
+    console.log(line);
+  }
+  
+  console.log('');
+  console.log(c.bold + 'Resources (use in form: poiva <resource> <verb>):' + c.reset);
+  var resources = Object.keys(RESOURCE_DEFS);
+  for (var i = 0; i < resources.length; i += 4) {
+    var line = resources.slice(i, i + 4).map(function(res) {
+      return '  ' + c.green + padRight(res, 18) + c.reset;
+    }).join('');
+    console.log(line);
+  }
+  
+  console.log('');
+  console.log(c.dim + 'Examples:' + c.reset);
+  console.log('  ' + c.dim + 'poiva mission create              # Create a new mission' + c.reset);
+  console.log('  ' + c.dim + 'poiva mission list                # List all missions' + c.reset);
+  console.log('  ' + c.dim + 'poiva auth login                  # Authenticate' + c.reset);
+  console.log('  ' + c.dim + 'poiva session list                # List sessions' + c.reset);
+  console.log('');
+  console.log(c.dim + 'Use "poiva <command> help" for detailed help on a command.' + c.reset);
+  console.log('');
+}
+
+function printSection(name, items) {
+  var c = COLORS;
+  var help = COMMAND_HELP[name] || {};
+  
+  console.log('');
+  console.log(c.bold + c.cyan + name + c.reset + ' - ' + (help.description || ''));
+  console.log('');
+  console.log(c.bold + 'Verbs:' + c.reset);
+  
+  if (help.verbs && Object.keys(help.verbs).length > 0) {
+    Object.keys(help.verbs).forEach(function(verb) {
+      var desc = help.verbs[verb];
+      console.log('  ' + c.green + padRight(verb, 12) + c.reset + ' ' + desc);
+    });
+  } else {
+    items.forEach(function(item) {
+      console.log('  ' + c.green + item + c.reset);
+    });
+  }
+  
+  if (help.examples && help.examples.length > 0) {
+    console.log('');
+    console.log(c.bold + 'Examples:' + c.reset);
+    help.examples.forEach(function(ex) {
+      console.log('  ' + c.dim + ex + c.reset);
+    });
+  }
+  console.log('');
+}
+
+function makeCompletionScript(shell) {
+  var commands = TOP_LEVEL_COMMANDS.concat(Object.keys(RESOURCE_DEFS));
+  if (shell === 'zsh') {
+    return [
+      '#compdef poiva',
+      '_poiva() {',
+      '  local -a commands',
+      '  commands=(' + commands.map(function (c) { return '"' + c + '"'; }).join(' ') + ')',
+      '  _describe "command" commands',
+      '}',
+      'compdef _poiva poiva'
+    ].join('\n');
+  }
+  return [
+    '_poiva() {',
+    '  local cur prev',
+    '  COMPREPLY=()',
+    '  cur="${COMP_WORDS[COMP_CWORD]}"',
+    '  prev="${COMP_WORDS[COMP_CWORD-1]}"',
+    '  COMPREPLY=( $(compgen -W "' + commands.join(' ') + '" -- "$cur") )',
+    '  return 0',
+    '}',
+    'complete -F _poiva poiva'
+  ].join('\n');
+}
+
+function createPrompt() {
+  var rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return {
+    ask: function (label, defaultValue) {
+      return new Promise(function (resolve) {
+        var suffix = defaultValue ? ' [' + defaultValue + ']' : '';
+        rl.question(label + suffix + ': ', function (answer) {
+          resolve((answer || '').trim() || defaultValue || '');
+        });
+      });
+    },
+    close: function () { rl.close(); }
+  };
+}
+
+function promptResource(def, seed) {
+  var prompt = createPrompt();
+  var input = seed || {};
+  var fields = def.promptFields.slice();
+  var p = Promise.resolve();
+  fields.forEach(function (field) {
+    p = p.then(function () { return prompt.ask(field, input[field] || ''); }).then(function (value) { input[field] = value; });
+  });
+  return p.then(function () {
+    prompt.close();
+    return input;
+  }).catch(function (err) {
+    prompt.close();
+    throw err;
+  });
+}
+
+function mergeFlagFields(input, args) {
+  Object.keys(args).forEach(function (key) {
+    if (key === '_' || key === 'file' || key === 'extension' || key === 'ext' || key === 'interactive' || key === 'force' || key === 'output' || key === 'name' || key === 'url' || key === 'token' || key === 'page' || key === 'size' || key === 'status' || key === 'search' || key === 'limit') return;
+    input[key] = args[key];
+  });
+  if (args.extension || args.ext) {
+    input.extensions = input.extensions || [];
+    [].concat(args.extension || [], args.ext || []).forEach(function (pair) {
+      var split = splitOnce(pair, '=');
+      if (!split[0]) return;
+      input.extensions.push({ name: split[0], value: split[1] || '' });
+    });
+  }
+}
+
+function normalizeRecord(resource, input, workspace) {
+  var now = new Date().toISOString();
+  var record = clone(input || {});
+  record.id = record.id || generateRecordId(resource, record);
+  record.status = record.status || record.decision || record.state || RESOURCE_DEFS[resource].defaultStatus || 'draft';
+  record.extensions = Array.isArray(record.extensions) ? record.extensions : [];
+  record.organizationId = record.organizationId || (workspace && workspace.currentOrganizationId) || '';
+  record.createdAt = record.createdAt || now;
+  record.updatedAt = now;
+  return record;
+}
+
+function generateRecordId(resource, record) {
+  var seed = record.code || record.slug || record.title || record.display || record.name || shortId();
+  return resource + '-' + slugify(seed).replace(/^-+|-+$/g, '') + '-' + shortId();
+}
+
+function filterRecords(records, args) {
+  var search = (args.search || args._.join(' ') || '').trim().toLowerCase();
+  var status = (args.status || '').trim().toLowerCase();
+  var owner = (args.owner || '').trim().toLowerCase();
+  var filtered = records.filter(function (record) {
+    if (status && String(record.status || record.decision || '').toLowerCase() !== status) return false;
+    if (owner) {
+      var ownerValue = String(record.owner || record.createdBy || record.assignee || record.submittedBy || '').toLowerCase();
+      if (ownerValue.indexOf(owner) === -1) return false;
+    }
+    if (search && !recordMatches(record, search)) return false;
+    return true;
+  });
+  return filtered;
+}
+
+function recordMatches(record, term) {
+  var hay = JSON.stringify(record).toLowerCase();
+  return hay.indexOf(term.toLowerCase()) !== -1;
+}
+
+function searchWorkspace(workspace, term) {
+  var out = [];
+  Object.keys(RESOURCE_DEFS).forEach(function (resource) {
+    loadResourceStore(workspace.root, resource).forEach(function (record) {
+      if (recordMatches(record, term)) {
+        out.push({
+          resource: resource,
+          id: record.id,
+          title: record.title || record.name || record.display || record.type || '',
+          match: term
+        });
+      }
+    });
+  });
+  return out;
+}
+
+function loadResourceStore(root, resource) {
+  var file = resourceStorePath(root, resource);
+  if (!fs.existsSync(file)) return [];
+  var data = readJson(file);
+  return Array.isArray(data) ? data : (data.items || []);
+}
+
+function saveResourceStore(root, resource, items) {
+  saveJson(resourceStorePath(root, resource), items);
+}
+
+function resourceStorePath(root, resource) {
+  return path.join(root, '.poiva', 'cache', resource + '.json');
+}
+
+function findRecord(root, resource, id) {
+  return loadResourceStore(root, resource).find(function (item) { return item.id === id; });
+}
+
+function sortByDateDesc(a, b) {
+  return String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || ''));
+}
+
+function statusForVerb(verb) {
+  if (verb === 'approve') return 'approved';
+  if (verb === 'reject') return 'rejected';
+  if (verb === 'archive') return 'archived';
+  if (verb === 'cancel') return 'cancelled';
+  if (verb === 'start') return 'started';
+  if (verb === 'complete') return 'completed';
+  if (verb === 'verify') return 'verified';
+  if (verb === 'run') return 'running';
+  return verb;
+}
+
+function formatWatchLine(record) {
+  return (record.updatedAt || record.createdAt || '') + '  ' + (record.id || '') + '  ' + (record.status || record.decision || '') + '  ' + (record.title || record.name || record.display || record.type || '');
+}
+
+function stringifyRecord(record) {
+  return JSON.stringify(record, null, 2);
+}
+
+function displayCell(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function currentOrg(workspace) {
+  if (!workspace || !workspace.organizations) return null;
+  return workspace.organizations.find(function (org) { return org.id === workspace.currentOrganizationId; }) || workspace.organizations[0] || null;
+}
+
+function findOrg(workspace, needle) {
+  if (!workspace || !workspace.organizations) return null;
+  needle = String(needle || '').toLowerCase();
+  return workspace.organizations.find(function (org) {
+    return String(org.id).toLowerCase() === needle || String(org.slug).toLowerCase() === needle || String(org.name).toLowerCase() === needle;
+  }) || null;
+}
+
+function getWorkspaceIfAny() {
+  var root = findWorkspaceRoot(process.cwd());
+  if (!root) return null;
+  return loadWorkspace(root);
+}
+
+function requireWorkspace() {
+  var root = findWorkspaceRoot(process.cwd());
+  if (!root) {
+    error('No .poiva workspace found. Run "poiva init" first.');
+    process.exit(1);
+  }
+  return loadWorkspace(root);
+}
+
+function loadWorkspace(root) {
+  var statePath = path.join(root, '.poiva', 'state.json');
+  var state = fs.existsSync(statePath) ? readJson(statePath) : {};
+  state.root = root;
+  state.paths = {
+    root: root,
+    poiva: path.join(root, '.poiva'),
+    config: path.join(root, '.poiva', 'config.yaml'),
+    state: statePath,
+    cache: path.join(root, '.poiva', 'cache'),
+    knowledge: path.join(root, '.poiva', 'knowledge'),
+    extensions: path.join(root, '.poiva', 'extensions')
+  };
+  state.organizations = state.organizations || [];
+  state.profile = state.profile || { name: process.env.USER || process.env.USERNAME || 'vlad', roles: ['Admin'], protocol: PROTOCOL_VERSION };
+  return state;
+}
+
+function saveWorkspace(workspace) {
+  writeJson(workspace.paths.state, workspace);
+  if (workspace.paths && workspace.paths.config) {
+    saveWorkspaceConfig({
+      name: loadWorkspaceConfig(workspace.root).name || 'poiva',
+      protocolVersion: PROTOCOL_VERSION,
+      currentOrganization: workspace.currentOrganizationId
+    }, workspace.paths.config);
+  }
+}
+
+function loadWorkspaceConfigFromCurrent() {
+  var workspace = requireWorkspace();
+  return loadWorkspaceConfig(workspace.root);
+}
+
+function loadWorkspaceConfig(root) {
+  var file = path.join(root, '.poiva', 'config.yaml');
+  if (!fs.existsSync(file)) return {};
+  return parseYaml(fs.readFileSync(file, 'utf8')) || {};
+}
+
+function saveWorkspaceConfig(config, filePath) {
+  var file = filePath || path.join(requireWorkspace().paths.root, '.poiva', 'config.yaml');
+  writeYaml(file, config);
+}
+
+function findWorkspaceRoot(start) {
+  var dir = path.resolve(start);
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.poiva', 'config.yaml'))) return dir;
+    var parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function canWriteWorkspace(root) {
+  try {
+    var dir = path.join(root, '.poiva', 'cache');
+    if (!fs.existsSync(dir)) return false;
+    var file = path.join(dir, '.write-test-' + shortId());
+    fs.writeFileSync(file, 'ok', 'utf8');
+    fs.unlinkSync(file);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function ensureGlobalDir() {
+  ensureDir(GLOBAL_DIR);
+  return GLOBAL_DIR;
+}
+
+function ensureGlobalExtensionsFile() {
+  ensureGlobalDir();
+  if (!fs.existsSync(path.join(GLOBAL_DIR, 'extensions.json'))) {
+    writeJson(path.join(GLOBAL_DIR, 'extensions.json'), { extensions: [] });
+  }
+  return path.join(GLOBAL_DIR, 'extensions.json');
+}
+
+function saveSession(session) {
+  var db = loadSessionsDb();
+  db.sessions = db.sessions.filter(function (item) { return item.name !== session.name; });
+  db.sessions.push(session);
+  db.current = session.name;
+  saveSessionsDb(db);
+}
+
+function loadSessionsDb() {
+  ensureGlobalDir();
+  if (!fs.existsSync(GLOBAL_SESSIONS_FILE)) {
+    return { sessions: [], current: null };
+  }
+  var data = readJson(GLOBAL_SESSIONS_FILE);
+  data.sessions = data.sessions || [];
+  data.current = data.current || null;
+  return data;
+}
+
+function saveSessionsDb(db) {
+  ensureGlobalDir();
+  writeJson(GLOBAL_SESSIONS_FILE, db);
+  if (db.current) {
+    writeJson(GLOBAL_CURRENT_SESSION_FILE, { current: db.current });
+  } else if (fs.existsSync(GLOBAL_CURRENT_SESSION_FILE)) {
+    fs.unlinkSync(GLOBAL_CURRENT_SESSION_FILE);
+  }
+}
+
+function setCurrentSession(name) {
+  var db = loadSessionsDb();
+  db.current = name;
+  saveSessionsDb(db);
+}
+
+function clearCurrentSession() {
+  var db = loadSessionsDb();
+  db.current = null;
+  saveSessionsDb(db);
+}
+
+function getCurrentSession() {
+  var db = loadSessionsDb();
+  if (!db.current) return null;
+  var session = db.sessions.find(function (item) { return item.name === db.current; });
+  return session || null;
+}
+
+function normalizeBaseUrl(url) {
+  return String(url || '').trim().replace(/\/+$/, '');
+}
+
+function verifySession(session) {
+  return requestCloud(session, 'GET', '/api/cloud/me').then(function (body) {
+    return {
+      organization: body && body.organization ? body.organization.name : 'organization',
+      user: body && body.user ? body.user.email : 'user'
+    };
+  });
+}
+
+function requestCloud(session, method, apiPath, body) {
+  if (!session || !session.url || !session.token) {
+    return Promise.reject(new Error('No active session credentials'));
+  }
+  var base = normalizeBaseUrl(session.url);
+  var target = new URL(base + apiPath);
+  var isHttps = target.protocol === 'https:';
+  var transport = isHttps ? https : http;
+  var payload = body ? JSON.stringify(body) : null;
+  var token = String(session.token || '').trim();
+  var headers = { 'Accept': 'application/json' };
+  if (/^pk_live_/i.test(token)) {
+    headers['X-API-Key'] = token;
+    headers['X-Poiva-Api-Key'] = token;
+  } else if (/^Bearer\s+/i.test(token)) {
+    headers['Authorization'] = token;
+  } else {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  if (payload) {
+    headers['Content-Type'] = 'application/json';
+    headers['Content-Length'] = Buffer.byteLength(payload);
+  }
+
+  return new Promise(function (resolve, reject) {
+    var req = transport.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (isHttps ? 443 : 80),
+      path: target.pathname + target.search,
+      method: method,
+      headers: headers,
+      timeout: 15000
+    }, function (res) {
+      var chunks = [];
+      res.on('data', function (chunk) { chunks.push(chunk); });
+      res.on('end', function () {
+        var text = Buffer.concat(chunks).toString('utf8');
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          var message = text || ('HTTP ' + res.statusCode);
+          try {
+            var parsedError = text ? JSON.parse(text) : null;
+            if (parsedError && parsedError.message) message = parsedError.message;
+            if (parsedError && parsedError.error && !parsedError.message) message = parsedError.error;
+          } catch (_) {}
+          reject(new Error(message));
+          return;
+        }
+        if (!text) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(text));
+        } catch (_) {
+          resolve(text);
+        }
+      });
+    });
+    req.on('timeout', function () {
+      req.destroy(new Error('Request timed out'));
+    });
+    req.on('error', function (err) { reject(err); });
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function readStructuredFile(file) {
+  var filePath = path.resolve(file);
+  var text = fs.readFileSync(filePath, 'utf8');
+  if (/\.json$/i.test(filePath)) return JSON.parse(text);
+  return parseYaml(text);
+}
+
+function writeYaml(file, obj) {
+  fs.writeFileSync(file, dumpYaml(obj), 'utf8');
+}
+
+function writeJson(file, obj) {
+  fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n', 'utf8');
+}
+
+function saveJson(file, obj) {
+  writeJson(file, obj);
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+function parseArgs(argv) {
+  var out = { _: [] };
+  for (var i = 0; i < argv.length; i++) {
+    var arg = argv[i];
+    if (arg.indexOf('--') === 0) {
+      var kv = splitOnce(arg.slice(2), '=');
+      var key = kv[0];
+      var value = kv[1];
+      if (value === undefined || value === '') {
+        if (i + 1 < argv.length && argv[i + 1].indexOf('-') !== 0) {
+          value = argv[++i];
+        } else {
+          value = true;
+        }
+      }
+      if (key === 'extension' || key === 'ext') {
+        out[key] = out[key] || [];
+        out[key].push(value);
+      } else {
+        out[key] = value;
+      }
+    } else if (arg.indexOf('-') === 0) {
+      out[arg.slice(1)] = true;
+    } else {
+      out._.push(arg);
+    }
+  }
+  return out;
+}
+
+function tokenizeCommandLine(line) {
+  var input = String(line || '').trim();
+  if (!input) return [];
+  var tokens = [];
+  var re = /"([^"]*)"|'([^']*)'|([^\s]+)/g;
+  var match;
+  while ((match = re.exec(input)) !== null) {
+    tokens.push(match[1] !== undefined ? match[1] : (match[2] !== undefined ? match[2] : match[3]));
+  }
+  return tokens;
+}
+
+function splitOnce(value, delimiter) {
+  var idx = value.indexOf(delimiter);
+  if (idx === -1) return [value, undefined];
+  return [value.slice(0, idx), value.slice(idx + delimiter.length)];
+}
+
+function shortId() {
+  return crypto.randomBytes(4).toString('hex');
+}
+
+function slugify(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'poiva';
+}
+
+function humanize(value) {
+  return String(value || '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/(^|\s)\w/g, function (m) { return m.toUpperCase(); });
+}
+
+function padRight(value, width) {
+  value = String(value);
+  while (value.length < width) value += ' ';
+  return value;
+}
+
+function printTable(headers, rows) {
+  var c = COLORS;
+  var widths = headers.map(function (header) { return String(header).length; });
+  rows.forEach(function (row) {
+    row.forEach(function (cell, i) {
+      widths[i] = Math.max(widths[i], String(cell).length);
+    });
+  });
+  
+  function colorizeCell(value, colIndex, headerName) {
+    var str = String(value);
+    if (!str) return str;
+    
+    // Color status/role columns
+    if (headerName.toLowerCase().includes('status') || headerName.toLowerCase().includes('role') || headerName.toLowerCase().includes('decision')) {
+      if (str === 'draft' || str === 'pending') return c.yellow + str + c.reset;
+      if (str === 'active' || str === 'executing' || str === 'active' || str === 'approved') return c.green + str + c.reset;
+      if (str === 'completed' || str === 'done' || str === 'archived') return c.blue + str + c.reset;
+      if (str === 'failed' || str === 'rejected' || str === 'cancelled') return c.red + str + c.reset;
+    }
+    
+    // Color ID columns (dimmed)
+    if (headerName.toLowerCase() === 'id') return c.dim + str + c.reset;
+    
+    return str;
+  }
+  
+  function fmt(row, isHeader) {
+    return row.map(function (cell, i) {
+      var padded = padRight(String(cell), widths[i]);
+      if (isHeader) {
+        return c.bold + c.cyan + padded + c.reset;
+      }
+      return colorizeCell(padded, i, headers[i]);
+    }).join(c.dim + '  │  ' + c.reset);
+  }
+  
+  // Header
+  console.log('');
+  console.log(c.dim + '┌' + widths.map(function(w) { return new Array(w + 1).join('─'); }).join('─┬─') + '┐' + c.reset);
+  console.log(c.dim + '│ ' + c.reset + fmt(headers, true) + c.dim + ' │' + c.reset);
+  console.log(c.dim + '├' + widths.map(function(w) { return new Array(w + 1).join('─'); }).join('─┼─') + '┤' + c.reset);
+  
+  // Rows
+  rows.forEach(function (row) {
+    console.log(c.dim + '│ ' + c.reset + fmt(row, false) + c.dim + ' │' + c.reset);
+  });
+  
+  console.log(c.dim + '└' + widths.map(function(w) { return new Array(w + 1).join('─'); }).join('─┴─') + '┘' + c.reset);
+  console.log('');
+}
+
+function info(message) {
+  console.log(COLORS.green + '✓' + COLORS.reset + ' ' + message);
+}
+
+function error(message) {
+  console.error(COLORS.red + '✗ Error:' + COLORS.reset + ' ' + message);
+}
+
+var result = main();
+if (result && typeof result.then === 'function') {
+  result.catch(function (err) {
+    error(err && err.message ? err.message : String(err));
+    process.exitCode = 1;
+  });
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/deliverable.schema.json",
+  "title": "Deliverable",
+  "description": "A concrete output produced by an activity, submitted for review. See docs/protocol/04-terminology.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "activityId": {
+      "anyOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }],
+      "description": "The activity this deliverable was produced by, if any."
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "artifactType": {
+      "type": "string",
+      "description": "Free-form type of the underlying artifact (e.g. 'document', 'pull-request', 'inspection-report')."
+    },
+    "state": { "$ref": "common.schema.json#/$defs/deliverableState" },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "title", "artifactType", "state", "createdAt"],
+  "additionalProperties": false
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/mission.schema.json",
+  "title": "Mission",
+  "description": "A goal-oriented unit of work with its own budget, resources, and activities. See docs/protocol/05-mission.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "state": { "$ref": "common.schema.json#/$defs/missionState" },
+    "priority": { "$ref": "common.schema.json#/$defs/priority" },
+    "sponsorId": { "$ref": "common.schema.json#/$defs/id" },
+    "sponsorName": { "type": "string" },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "updatedAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "title", "description", "state", "createdAt", "updatedAt"],
+  "additionalProperties": false
+}

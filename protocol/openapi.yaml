@@ -1,0 +1,706 @@
+openapi: 3.1.0
+info:
+  title: Poiva Protocol API
+  version: "1.0"
+  summary: >
+    HTTP surface for a Poiva-conformant server implementing the Mission -> Activity ->
+    Deliverable -> Evidence -> Verification -> Settlement lifecycle.
+  description: >
+    This document describes the REST API of Poiva Cloud, the reference implementation of the
+    Poiva protocol (see /protocol/docs). It is the contract every official SDK (TypeScript,
+    Python, Java) and the `poiva` CLI are built against.
+
+
+    Two design choices are intentional, not omissions:
+
+
+    1. Workspace resources (missions, activities, deliverables, evidence, verifications,
+       settlements) have no single-item GET and no delete. Resources are read back via their
+       parent's list endpoint, and are retired by moving them to a terminal state
+       (`CANCELLED`, `REJECTED`, `ARCHIVED`, ...) rather than being removed.
+    2. Updates are restricted to a resource's own state/outcome transition — there is no
+       generic "PATCH arbitrary fields" endpoint. This keeps every mutation representable as a
+       single, meaningful lifecycle event in the protocol's append-only event log.
+
+
+    A different Poiva-conformant server is free to implement this same contract differently
+    (different storage, different auth), as long as the request/response shapes and lifecycle
+    semantics described here and in /protocol/docs are preserved.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.getpoiva.com
+    description: Poiva Cloud (hosted reference implementation)
+  - url: http://localhost:8080
+    description: Local development server
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+tags:
+  - name: Auth
+    description: Organization signup, session login, and account management.
+  - name: Missions
+  - name: Activities
+  - name: Deliverables
+  - name: Evidence
+  - name: Verifications
+  - name: Settlements
+  - name: Verification Links
+    description: Public, unauthenticated share links for a mission's verification timeline.
+
+paths:
+  /api/cloud/signup:
+    post:
+      tags: [Auth]
+      operationId: signup
+      summary: Create a new organization and its first user, and issue a session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignupRequest" }
+      responses:
+        "201":
+          description: Organization created; session issued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+
+  /api/cloud/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Authenticate with email/password and issue a session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Session issued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401":
+          description: Invalid credentials.
+
+  /api/cloud/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Invalidate the current session token. No-op for API key auth.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204":
+          description: Session invalidated.
+
+  /api/cloud/me:
+    get:
+      tags: [Auth]
+      operationId: currentAccount
+      summary: Get the authenticated user and their organization.
+      responses:
+        "200":
+          description: Current account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurrentAccountResponse" }
+    patch:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change the authenticated user's password.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+      responses:
+        "204":
+          description: Password changed.
+    delete:
+      tags: [Auth]
+      operationId: deleteAccount
+      summary: Delete the authenticated user's account.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204":
+          description: Account deleted.
+
+  /api/cloud/organization:
+    get:
+      tags: [Auth]
+      operationId: currentOrganization
+      summary: Get the authenticated principal's organization.
+      responses:
+        "200":
+          description: Organization.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationResponse" }
+
+  /api/cloud/workspace/missions:
+    get:
+      tags: [Missions]
+      operationId: listMissions
+      summary: List every mission in the caller's organization.
+      responses:
+        "200":
+          description: Missions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/mission.schema.json" }
+    post:
+      tags: [Missions]
+      operationId: createMission
+      summary: Create a mission in state DRAFT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MissionCreateRequest" }
+      responses:
+        "200":
+          description: Mission created.
+          content:
+            application/json:
+              schema: { $ref: "schema/mission.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/state:
+    patch:
+      tags: [Missions]
+      operationId: updateMissionState
+      summary: Transition a mission's lifecycle state.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MissionStateUpdateRequest" }
+      responses:
+        "200":
+          description: Mission updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/mission.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/activities:
+    get:
+      tags: [Activities]
+      operationId: listActivities
+      summary: List every activity belonging to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Activities.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/activity.schema.json" }
+    post:
+      tags: [Activities]
+      operationId: createActivity
+      summary: Create an activity within a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActivityCreateRequest" }
+      responses:
+        "200":
+          description: Activity created.
+          content:
+            application/json:
+              schema: { $ref: "schema/activity.schema.json" }
+
+  /api/cloud/workspace/activities/{id}/state:
+    patch:
+      tags: [Activities]
+      operationId: updateActivityState
+      summary: Transition an activity's lifecycle state.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActivityStateUpdateRequest" }
+      responses:
+        "200":
+          description: Activity updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/activity.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/deliverables:
+    get:
+      tags: [Deliverables]
+      operationId: listDeliverables
+      summary: List every deliverable belonging to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Deliverables.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/deliverable.schema.json" }
+    post:
+      tags: [Deliverables]
+      operationId: createDeliverable
+      summary: Submit a deliverable to a mission, optionally tied to an activity.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeliverableCreateRequest" }
+      responses:
+        "200":
+          description: Deliverable created.
+          content:
+            application/json:
+              schema: { $ref: "schema/deliverable.schema.json" }
+
+  /api/cloud/workspace/deliverables/{id}/state:
+    patch:
+      tags: [Deliverables]
+      operationId: updateDeliverableState
+      summary: Transition a deliverable's review state.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeliverableStateUpdateRequest" }
+      responses:
+        "200":
+          description: Deliverable updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/deliverable.schema.json" }
+
+  /api/cloud/workspace/deliverables/{id}/evidence:
+    get:
+      tags: [Evidence]
+      operationId: listEvidence
+      summary: List every piece of evidence attached to a deliverable.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Evidence.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/evidence.schema.json" }
+    post:
+      tags: [Evidence]
+      operationId: createEvidence
+      summary: Attach a piece of evidence to a deliverable.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EvidenceCreateRequest" }
+      responses:
+        "200":
+          description: Evidence created.
+          content:
+            application/json:
+              schema: { $ref: "schema/evidence.schema.json" }
+
+  /api/cloud/workspace/deliverables/{id}/verifications:
+    get:
+      tags: [Verifications]
+      operationId: listVerifications
+      summary: List every verification run against a deliverable.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Verifications.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/verification.schema.json" }
+    post:
+      tags: [Verifications]
+      operationId: createVerification
+      summary: Start a verification against a deliverable, in outcome PENDING.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerificationCreateRequest" }
+      responses:
+        "200":
+          description: Verification created.
+          content:
+            application/json:
+              schema: { $ref: "schema/verification.schema.json" }
+
+  /api/cloud/workspace/verifications/{id}/outcome:
+    patch:
+      tags: [Verifications]
+      operationId: updateVerificationOutcome
+      summary: Record a verification's outcome.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerificationOutcomeUpdateRequest" }
+      responses:
+        "200":
+          description: Verification updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/verification.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/settlements:
+    get:
+      tags: [Settlements]
+      operationId: listSettlements
+      summary: List every settlement belonging to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Settlements.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/settlement.schema.json" }
+    post:
+      tags: [Settlements]
+      operationId: createSettlement
+      summary: Create a settlement for a mission, in state PENDING.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettlementCreateRequest" }
+      responses:
+        "200":
+          description: Settlement created.
+          content:
+            application/json:
+              schema: { $ref: "schema/settlement.schema.json" }
+
+  /api/cloud/workspace/settlements/{id}/state:
+    patch:
+      tags: [Settlements]
+      operationId: updateSettlementState
+      summary: Transition a settlement's lifecycle state.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettlementStateUpdateRequest" }
+      responses:
+        "200":
+          description: Settlement updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/settlement.schema.json" }
+
+  /api/cloud/workspace/missions/{missionId}/share:
+    post:
+      tags: [Verification Links]
+      operationId: createShare
+      summary: Create (or replace) a public verification link for a mission.
+      parameters:
+        - name: missionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Share link created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShareResponse" }
+    get:
+      tags: [Verification Links]
+      operationId: currentShare
+      summary: Get the current share link for a mission, if any.
+      parameters:
+        - name: missionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Current share link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShareResponse" }
+    delete:
+      tags: [Verification Links]
+      operationId: revokeShare
+      summary: Revoke a mission's share link.
+      parameters:
+        - name: missionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Share link revoked.
+
+  /api/public/verify/{token}:
+    get:
+      tags: [Verification Links]
+      operationId: publicVerify
+      summary: >
+        Fetch the verification timeline behind a share link. Unauthenticated: possession of the
+        token is the credential. Recompute `fingerprint` independently to confirm the returned
+        timeline matches the source record.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Verification timeline.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VerificationTimelineResponse" }
+        "404":
+          description: Unknown or revoked token.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Session token returned by /api/cloud/login or /api/cloud/signup, sent as
+        `Authorization: Bearer <token>`.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        Organization API key of the form `pk_live_<keyId>.<secret>`. Also accepted on the
+        `X-Poiva-Api-Key` header.
+
+  parameters:
+    PathId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    SignupRequest:
+      type: object
+      required: [organizationName, email, password]
+      properties:
+        organizationName: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        displayName: { type: string }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    ChangePasswordRequest:
+      type: object
+      required: [newPassword]
+      properties:
+        currentPassword: { type: string }
+        newPassword: { type: string, minLength: 8 }
+
+    MemberResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        role: { type: string }
+
+    OrganizationResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+        memberCount: { type: integer }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/MemberResponse" }
+
+    AuthResponse:
+      type: object
+      properties:
+        organization: { $ref: "#/components/schemas/OrganizationResponse" }
+        user: { $ref: "#/components/schemas/MemberResponse" }
+        tokenType: { type: string, example: Bearer }
+        accessToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    CurrentAccountResponse:
+      type: object
+      properties:
+        organization: { $ref: "#/components/schemas/OrganizationResponse" }
+        user: { $ref: "#/components/schemas/MemberResponse" }
+        expiresAt: { type: string, format: date-time }
+
+    MissionCreateRequest:
+      type: object
+      required: [title, description]
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string, minLength: 1 }
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+
+    MissionStateUpdateRequest:
+      type: object
+      required: [state]
+      properties:
+        state: { $ref: "schema/common.schema.json#/$defs/missionState" }
+
+    ActivityCreateRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+
+    ActivityStateUpdateRequest:
+      type: object
+      required: [state]
+      properties:
+        state: { $ref: "schema/common.schema.json#/$defs/activityState" }
+
+    DeliverableCreateRequest:
+      type: object
+      required: [title, artifactType]
+      properties:
+        title: { type: string, minLength: 1 }
+        artifactType: { type: string, minLength: 1 }
+        activityId: { type: string, format: uuid }
+
+    DeliverableStateUpdateRequest:
+      type: object
+      required: [state]
+      properties:
+        state: { $ref: "schema/common.schema.json#/$defs/deliverableState" }
+
+    EvidenceCreateRequest:
+      type: object
+      required: [type, locator]
+      properties:
+        type: { type: string, minLength: 1 }
+        locator: { type: string, minLength: 1 }
+
+    VerificationCreateRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode: { $ref: "schema/common.schema.json#/$defs/verificationMode" }
+        policyCode: { type: string }
+
+    VerificationOutcomeUpdateRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { $ref: "schema/common.schema.json#/$defs/verificationOutcome" }
+
+    SettlementCreateRequest:
+      type: object
+      required: [type]
+      properties:
+        type: { $ref: "schema/common.schema.json#/$defs/settlementType" }
+        amount: { type: number }
+        currency: { type: string }
+
+    SettlementStateUpdateRequest:
+      type: object
+      required: [state]
+      properties:
+        state: { $ref: "schema/common.schema.json#/$defs/settlementState" }
+
+    ShareResponse:
+      type: object
+      properties:
+        token: { type: string }
+        url: { type: string, format: uri }
+        resourceType: { type: string }
+        resourceId: { type: string }
+        createdAt: { type: string, format: date-time }
+        revoked: { type: boolean }
+
+    VerificationStep:
+      type: object
+      properties:
+        resourceType: { type: string }
+        resourceId: { type: string }
+        action: { type: string }
+        title: { type: string }
+        status: { type: string }
+        summary: { type: string }
+        occurredAt: { type: string, format: date-time }
+        stepHash: { type: string }
+
+    VerificationTimelineResponse:
+      type: object
+      properties:
+        organizationName: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: string }
+        title: { type: string }
+        summary: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        timeline:
+          type: array
+          items: { $ref: "#/components/schemas/VerificationStep" }
+        fingerprint:
+          type: string
+          description: Recompute independently to confirm the timeline hasn't been altered.
+        verifiedAt: { type: string, format: date-time }
+        shareUrl: { type: string, format: uri }

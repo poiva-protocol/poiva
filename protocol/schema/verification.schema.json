@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/verification.schema.json",
+  "title": "Verification",
+  "description": "A check (automatic, manual, or hybrid) of a deliverable against its evidence, producing an outcome. See docs/protocol/04-terminology.md section 6.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "deliverableId": { "$ref": "common.schema.json#/$defs/id" },
+    "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+    "outcome": { "$ref": "common.schema.json#/$defs/verificationOutcome" },
+    "policyCode": {
+      "type": ["string", "null"],
+      "description": "Identifier of the policy this verification was evaluated against, if any."
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "deliverableId", "mode", "outcome", "createdAt"],
+  "additionalProperties": false
+}

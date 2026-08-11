@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/evidence.schema.json",
+  "title": "Evidence",
+  "description": "Proof supporting a deliverable's claimed completion (e.g. a commit, a signed document, a CI run). See docs/protocol/04-terminology.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "deliverableId": { "$ref": "common.schema.json#/$defs/id" },
+    "type": {
+      "type": "string",
+      "description": "Free-form evidence type (e.g. 'git-commit', 'pull-request', 'signed-document', 'ci-run')."
+    },
+    "locator": {
+      "type": "string",
+      "description": "Where the evidence lives — a URL, commit SHA, or other addressable reference."
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "deliverableId", "type", "locator", "createdAt"],
+  "additionalProperties": false
+}

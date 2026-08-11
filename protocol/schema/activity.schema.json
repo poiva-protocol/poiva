@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/activity.schema.json",
+  "title": "Activity",
+  "description": "A unit of executable work within a mission. See docs/protocol/06-activity.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "state": { "$ref": "common.schema.json#/$defs/activityState" },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "title", "state", "createdAt"],
+  "additionalProperties": false
+}
