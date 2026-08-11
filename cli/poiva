@@ -41,15 +41,22 @@ var COMMAND_HELP = {
   auth: {
     description: 'Manage authentication sessions and credentials.',
     verbs: {
-      login: 'Authenticate to Poiva. Interactive or with flags.',
-      logout: 'Remove current session credentials.',
-      whoami: 'Display current user, org, and session info.'
+      signup: 'Create a new organization and account, and start a session.',
+      login: 'Authenticate to Poiva. Interactive, --token, or --email/--password.',
+      logout: 'Invalidate and remove current session credentials.',
+      whoami: 'Display current user, org, and session info.',
+      password: "Change the current account's password.",
+      'delete-account': 'Permanently delete the current account.'
     },
     examples: [
+      'poiva auth signup --organization Acme --email vlad@acme.com --password s3cret123',
       'poiva auth login',
       'poiva auth login --name production --url https://getpoiva.com --token abc123',
+      'poiva auth login --email vlad@acme.com --password s3cret123',
       'poiva auth logout',
-      'poiva auth whoami'
+      'poiva auth whoami',
+      'poiva auth password --current-password old --new-password new123456',
+      'poiva auth delete-account --yes'
     ]
   },
   session: {
@@ -73,7 +80,8 @@ var COMMAND_HELP = {
     ]
   },
   org: {
-    description: 'Manage organizations.',
+    description: 'Manage organizations. With an active session, current/describe read the real ' +
+      'server-side organization (accounts belong to a single org); list/switch remain local-workspace-only.',
     verbs: {
       current: 'Show the current organization.',
       list: 'List organizations you belong to.',
@@ -101,7 +109,9 @@ var COMMAND_HELP = {
       import: 'Import a mission from file.',
       watch: 'Watch mission in real-time.',
       timeline: 'Show mission execution timeline.',
-      graph: 'Display mission DAG (ASCII graph).'
+      graph: 'Display mission DAG (ASCII graph).',
+      share: 'Create/get/revoke a public verification link (server-backed; needs a session).',
+      events: "Show the mission's protocol event log (server-backed; needs a session)."
     },
     examples: [
       'poiva mission create',
@@ -110,59 +120,81 @@ var COMMAND_HELP = {
       'poiva mission list --status executing --owner vlad --page 2 --size 50',
       'poiva mission get mission-123',
       'poiva mission update mission-123',
-      'poiva mission watch mission-123',
-      'poiva mission timeline mission-123'
+      'poiva mission cancel mission-123',
+      'poiva mission events mission-123',
+      'poiva mission share create mission-123',
+      'poiva mission share revoke mission-123'
     ]
   },
   activity: {
-    description: 'Manage activities within missions.',
+    description: 'Manage activities within missions. create/list/export take the missionId as ' +
+      'a positional argument (server-backed resources are addressed via their parent, not a flag).',
     verbs: {
-      create: 'Create an activity.',
-      list: 'List activities.',
-      get: 'Get activity details.',
-      update: 'Update an activity.',
-      delete: 'Delete an activity.',
-      assign: 'Assign participant(s) to activity.',
-      start: 'Start an activity.',
-      complete: 'Mark activity complete.',
-      verify: 'Verify activity completion.',
+      create: 'Create an activity: poiva activity create <missionId> --title ...',
+      list: 'List activities for a mission.',
+      get: 'Get single activity details.',
+      update: 'Generic state transition: poiva activity update <id> --state <STATE>.',
+      delete: 'Soft-delete an activity.',
+      assign: "Assign a participant (defaults to yourself if --participantId is omitted — there's " +
+        'still no endpoint to look up other participants\' ids).',
+      submit: 'Mark the activity submitted for review.',
+      approve: 'Approve the activity.',
+      start: 'Generic shortcut for update --state EXECUTING.',
+      complete: 'Generic shortcut for update --state COMPLETED.',
+      verify: 'Generic shortcut for update --state VERIFYING.',
+      events: "Show the activity's protocol event log.",
       watch: 'Watch activity progress.'
     },
     examples: [
-      'poiva activity create',
-      'poiva activity list --missionId mission-123',
-      'poiva activity assign activity-1 participant-5'
+      'poiva activity create mission-123 --title "Draft outline"',
+      'poiva activity list mission-123',
+      'poiva activity get activity-1',
+      'poiva activity assign activity-1',
+      'poiva activity assign activity-1 --participantId 9c2e0e2a-...',
+      'poiva activity submit activity-1',
+      'poiva activity approve activity-1',
+      'poiva activity events activity-1'
     ]
   },
   participant: {
-    description: 'Manage participants (people or entities fulfilling work).',
+    description: 'Manage participants (people or entities fulfilling work). STILL LOCAL-WORKSPACE-' +
+      'ONLY: the server has no participant create/list/get endpoint (Participant has no written ' +
+      'protocol spec chapter yet, so the backend deliberately left it unmodeled — see cli/README.md). ' +
+      'Real participants are auto-created per organization member on their first authenticated ' +
+      'request; the one thing that IS server-backed is assigning an existing one to an activity.',
     verbs: {
-      create: 'Create a participant.',
-      list: 'List participants.',
-      get: 'Get participant details.',
-      update: 'Update participant info.',
-      delete: 'Remove a participant.',
-      assign: 'Assign to activities or missions.'
+      create: 'Create a participant (local workspace only).',
+      list: 'List participants (local workspace only).',
+      get: 'Get participant details (local workspace only).',
+      update: 'Update participant info (local workspace only).',
+      delete: 'Remove a participant (local workspace only).',
+      assign: 'Assign to activities or missions (local workspace only — see "poiva activity assign" for the real server-backed assignment).'
     },
     examples: [
       'poiva participant create',
       'poiva participant list --role resource',
-      'poiva participant get participant-123'
+      'poiva activity assign activity-1 --participantId <uuid>   # the real, server-backed assignment'
     ]
   },
   deliverable: {
-    description: 'Manage deliverables (outputs from activities).',
+    description: 'Manage deliverables (outputs from activities). submit/list/export take the ' +
+      'missionId as a positional argument.',
     verbs: {
-      submit: 'Submit a deliverable.',
-      list: 'List deliverables.',
-      download: 'Download a deliverable.',
-      approve: 'Approve a deliverable.',
-      reject: 'Reject a deliverable.'
+      submit: 'Submit a deliverable: poiva deliverable submit <missionId> --title ... --artifactType ...',
+      list: 'List deliverables for a mission.',
+      get: 'Get single deliverable details.',
+      delete: 'Soft-delete a deliverable.',
+      approve: 'Approve a deliverable (state -> ACCEPTED).',
+      reject: 'Reject a deliverable.',
+      download: 'Download a deliverable (local workspace only).'
     },
     examples: [
-      'poiva deliverable list --missionId mission-123',
+      'poiva deliverable submit mission-123 --title Report --artifactType document --activityId activity-1',
+      'poiva deliverable submit mission-123 --title Report --artifactType document --acceptanceCriteria "Passes lint,Has tests"',
+      'poiva deliverable list mission-123',
+      'poiva deliverable get deliverable-1',
       'poiva deliverable approve deliverable-1',
-      'poiva deliverable download deliverable-1 --output ./file.pdf'
+      'poiva deliverable reject deliverable-1'
     ]
   },
   capability: {
@@ -237,42 +269,54 @@ var COMMAND_HELP = {
     ]
   },
   evidence: {
-    description: 'Manage evidence (proof of work completion).',
+    description: 'Manage evidence (proof of work completion). Immutable per spec once created — ' +
+      'no update or delete, remotely or locally. upload/list take the deliverableId as a positional argument.',
     verbs: {
-      upload: 'Upload evidence file.',
-      list: 'List evidence.',
-      get: 'Get evidence details.',
-      verify: 'Verify evidence authenticity.'
+      upload: 'Attach evidence to a deliverable: poiva evidence upload <deliverableId> --type ... --locator ...',
+      list: 'List evidence for a deliverable.',
+      get: 'Get single evidence details.',
+      verify: 'Local-only: mark evidence verified in a local workspace record (no server endpoint).'
     },
     examples: [
-      'poiva evidence upload --subjectId activity-1 --file proof.pdf',
-      'poiva evidence list --subjectId activity-1'
+      'poiva evidence upload deliverable-1 --type link --locator https://example.com/proof.pdf',
+      'poiva evidence list deliverable-1',
+      'poiva evidence get evidence-1'
     ]
   },
   verification: {
-    description: 'Manage verification processes.',
+    description: 'Manage verification runs against deliverables. run/history take the ' +
+      'deliverableId as a positional argument.',
     verbs: {
-      run: 'Run verification checks.',
-      approve: 'Approve verification result.',
-      reject: 'Reject verification result.',
-      history: 'View verification history.'
+      run: 'Start a verification: poiva verification run <deliverableId> --mode automatic|manual|hybrid',
+      get: 'Get single verification details.',
+      evaluate: 'Record the outcome: poiva verification evaluate <id> --outcome PASSED|FAILED|INCONCLUSIVE [--notes ...]',
+      approve: 'Shortcut for evaluate --outcome PASSED.',
+      reject: 'Shortcut for evaluate --outcome FAILED.',
+      history: 'List verifications for a deliverable.'
     },
     examples: [
-      'poiva verification run --deliverableId deliverable-1',
-      'poiva verification approve verification-1'
+      'poiva verification run deliverable-1 --mode manual',
+      'poiva verification evaluate verification-1 --outcome PASSED --notes "Looks correct"',
+      'poiva verification approve verification-1',
+      'poiva verification history deliverable-1'
     ]
   },
   settlement: {
-    description: 'Manage settlements (payment and compensation).',
+    description: 'Manage settlements (payment and compensation). create/list/export take the ' +
+      'missionId as a positional argument.',
     verbs: {
-      create: 'Create a settlement.',
-      approve: 'Approve settlement.',
-      list: 'List settlements.',
-      export: 'Export settlement report.'
+      create: 'Create a settlement: poiva settlement create <missionId> --type INVOICE --amount 500 --currency USD',
+      list: 'List settlements for a mission.',
+      get: 'Get single settlement details.',
+      delete: 'Soft-delete a settlement.',
+      confirm: 'Confirm the settlement.',
+      export: 'Export settlements for a mission as JSON.'
     },
     examples: [
-      'poiva settlement create --missionId mission-123',
-      'poiva settlement approve settlement-1'
+      'poiva settlement create mission-123 --type INVOICE --amount 500 --currency USD',
+      'poiva settlement list mission-123',
+      'poiva settlement confirm settlement-1',
+      'poiva settlement export mission-123 --output settlements.json'
     ]
   },
   event: {
@@ -294,6 +338,15 @@ var COMMAND_HELP = {
     examples: [
       'poiva search OAuth',
       'poiva search "payment processing"'
+    ]
+  },
+  verify: {
+    description: 'Fetch a public verification timeline by share token. Unauthenticated: ' +
+      'possession of the token is the credential.',
+    verbs: {},
+    examples: [
+      'poiva verify 9f3c2a1b-4e21-4a9d-9c3e-1a2b3c4d5e6f',
+      'poiva verify 9f3c2a1b-4e21-4a9d-9c3e-1a2b3c4d5e6f --url https://getpoiva.com'
     ]
   },
   profile: {
@@ -487,19 +540,34 @@ var RESOURCE_DEFS = {
 
 // Remote (session-backed) support only covers the typed protocol model exposed at
 // /api/cloud/workspace/**: mission, activity, deliverable, evidence, verification, settlement.
-// participant/capability/knowledge/objective/constraint/policy/event have no server-side typed
-// model yet, so they remain local-workspace-only (see RESOURCE_DEFS/loadResourceStore above).
-// The typed API also has no generic field update or delete — only create, list, and (for most
-// resources) a single state/outcome transition.
+// participant/capability/knowledge/objective/constraint/policy/event have NO server-side typed
+// model or endpoint yet (confirmed against the backend as of the "Close protocol/workspace API
+// gaps" change: Participant, Capability, Knowledge Capsule, Estimate, and Planning Proposal are
+// explicitly flagged as future work, not implemented), so they remain local-workspace-only (see
+// RESOURCE_DEFS/loadResourceStore above). The one participant-adjacent capability that IS real:
+// activity assign now takes an existing participantId (defaults to self-assignment when omitted).
+//
+// Each of the six typed resources now has a single-item GET; Mission/Activity/Deliverable/
+// Settlement additionally have DELETE (soft-delete — the record is hidden from list, not erased)
+// and a GET .../events log for Mission/Activity. Evidence and Verification stay immutable per
+// spec (docs/protocol/05-mission.md §20, 06-activity.md §14): no delete for either. Beyond the
+// generic state/outcome PATCH, some resources also expose explicit lifecycle actions (`actions`
+// below) that the server validates through the same transition graph as the generic PATCH.
 var REMOTE_RESOURCE_DEFS = {
   mission: {
     parentParam: null,
     listPath: function () { return '/api/cloud/workspace/missions'; },
     createPath: function () { return '/api/cloud/workspace/missions'; },
     createFields: ['title', 'description', 'priority'],
+    getPath: function (id) { return '/api/cloud/workspace/missions/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/missions/' + id; },
+    eventsPath: function (id) { return '/api/cloud/workspace/missions/' + id + '/events'; },
     statePath: function (id) { return '/api/cloud/workspace/missions/' + id + '/state'; },
     stateField: 'state',
     stateValues: ['DRAFT', 'KNOWLEDGE', 'PLANNING', 'ESTIMATION', 'PROVISIONING', 'EXECUTING', 'VERIFYING', 'APPROVAL', 'SETTLEMENT', 'COMPLETED', 'CANCELLED'],
+    actions: {
+      cancel: { method: 'POST', path: function (id) { return '/api/cloud/workspace/missions/' + id + '/cancel'; } }
+    },
     columns: ['id', 'state', 'title', 'priority'],
     toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.title, priority: r.priority || '' }; }
   },
@@ -508,9 +576,19 @@ var REMOTE_RESOURCE_DEFS = {
     listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/activities'; },
     createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/activities'; },
     createFields: ['title', 'description'],
+    getPath: function (id) { return '/api/cloud/workspace/activities/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/activities/' + id; },
+    eventsPath: function (id) { return '/api/cloud/workspace/activities/' + id + '/events'; },
     statePath: function (id) { return '/api/cloud/workspace/activities/' + id + '/state'; },
     stateField: 'state',
     stateValues: ['DRAFT', 'READY', 'ASSIGNED', 'EXECUTING', 'SUBMITTED', 'VERIFYING', 'APPROVED', 'COMPLETED', 'CANCELLED', 'REJECTED', 'ARCHIVED'],
+    actions: {
+      // No participantId -> server assigns the caller's own (auto-provisioned) participant.
+      // There's still no endpoint to list/look up other participants' ids (see comment above).
+      assign: { method: 'POST', path: function (id) { return '/api/cloud/workspace/activities/' + id + '/assign'; }, bodyFields: ['participantId'] },
+      submit: { method: 'POST', path: function (id) { return '/api/cloud/workspace/activities/' + id + '/submit'; } },
+      approve: { method: 'POST', path: function (id) { return '/api/cloud/workspace/activities/' + id + '/approve'; } }
+    },
     columns: ['id', 'state', 'title', 'missionId'],
     toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.title, missionId: r.missionId }; }
   },
@@ -518,10 +596,15 @@ var REMOTE_RESOURCE_DEFS = {
     parentParam: 'missionId',
     listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/deliverables'; },
     createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/deliverables'; },
-    createFields: ['title', 'artifactType', 'activityId'],
+    createFields: ['title', 'artifactType', 'activityId', 'acceptanceCriteria'],
+    getPath: function (id) { return '/api/cloud/workspace/deliverables/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/deliverables/' + id; },
     statePath: function (id) { return '/api/cloud/workspace/deliverables/' + id + '/state'; },
     stateField: 'state',
     stateValues: ['SUBMITTED', 'IN_REVIEW', 'ACCEPTED', 'REJECTED'],
+    // 'approve' has no dedicated action endpoint; the generic verb-to-state fallback
+    // (statusForVerb) would otherwise send 'APPROVED', which isn't a DeliverableState.
+    verbStateAliases: { approve: 'ACCEPTED' },
     columns: ['id', 'state', 'title', 'missionId'],
     toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.title, missionId: r.missionId, activityId: r.activityId || '' }; }
   },
@@ -530,6 +613,7 @@ var REMOTE_RESOURCE_DEFS = {
     listPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/evidence'; },
     createPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/evidence'; },
     createFields: ['type', 'locator'],
+    getPath: function (id) { return '/api/cloud/workspace/evidence/' + id; },
     statePath: null,
     columns: ['id', 'type', 'locator', 'deliverableId'],
     toRow: function (r) { return { id: r.id, type: r.type, status: r.type, title: r.type + ' evidence', locator: r.locator, deliverableId: r.deliverableId }; }
@@ -539,9 +623,16 @@ var REMOTE_RESOURCE_DEFS = {
     listPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/verifications'; },
     createPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/verifications'; },
     createFields: ['mode', 'policyCode'],
+    getPath: function (id) { return '/api/cloud/workspace/verifications/' + id; },
     statePath: function (id) { return '/api/cloud/workspace/verifications/' + id + '/outcome'; },
     stateField: 'outcome',
     stateValues: ['PENDING', 'PASSED', 'FAILED', 'INCONCLUSIVE'],
+    // 'approve'/'reject' have no dedicated action endpoint; the generic verb-to-state fallback
+    // (statusForVerb) would otherwise send 'APPROVED'/'REJECTED', neither a VerificationOutcome.
+    verbStateAliases: { approve: 'PASSED', reject: 'FAILED' },
+    actions: {
+      evaluate: { method: 'POST', path: function (id) { return '/api/cloud/workspace/verifications/' + id + '/evaluate'; }, bodyFields: ['outcome', 'notes'], requiredFields: ['outcome'] }
+    },
     columns: ['id', 'outcome', 'mode', 'deliverableId'],
     toRow: function (r) { return { id: r.id, outcome: r.outcome, status: r.outcome, title: 'Verification (' + r.mode + ')', mode: r.mode, deliverableId: r.deliverableId }; }
   },
@@ -550,9 +641,14 @@ var REMOTE_RESOURCE_DEFS = {
     listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/settlements'; },
     createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/settlements'; },
     createFields: ['type', 'amount', 'currency'],
+    getPath: function (id) { return '/api/cloud/workspace/settlements/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/settlements/' + id; },
     statePath: function (id) { return '/api/cloud/workspace/settlements/' + id + '/state'; },
     stateField: 'state',
     stateValues: ['PENDING', 'CONFIRMED', 'CANCELLED'],
+    actions: {
+      confirm: { method: 'POST', path: function (id) { return '/api/cloud/workspace/settlements/' + id + '/confirm'; } }
+    },
     columns: ['id', 'state', 'type', 'amount'],
     toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.type, type: r.type, amount: r.amount || '', currency: r.currency || '', missionId: r.missionId }; }
   }
@@ -655,7 +751,7 @@ var REMOTE_RESOURCE_DEFS = {
     return JSON.parse(JSON.stringify(value || {}));
   }
 
-  var TOP_LEVEL_COMMANDS = ['auth', 'session', 'org', 'mission', 'activity', 'participant', 'capability', 'knowledge', 'objective', 'constraint', 'policy', 'deliverable', 'evidence', 'verification', 'settlement', 'event', 'search', 'profile', 'config', 'extension', 'version', 'completion', 'doctor', 'dashboard', 'init'];
+  var TOP_LEVEL_COMMANDS = ['auth', 'session', 'org', 'mission', 'activity', 'participant', 'capability', 'knowledge', 'objective', 'constraint', 'policy', 'deliverable', 'evidence', 'verification', 'settlement', 'event', 'search', 'verify', 'profile', 'config', 'extension', 'version', 'completion', 'doctor', 'dashboard', 'init'];
 
 function main() {
   var argv = process.argv.slice(2);
@@ -671,6 +767,7 @@ function main() {
   if (command === 'session') return handleSession(rest);
   if (command === 'org') return handleOrg(rest);
   if (command === 'search') return handleSearch(rest);
+  if (command === 'verify') return handleVerify(rest);
   if (command === 'profile') return handleProfile(rest);
   if (command === 'config') return handleConfig(rest);
   if (command === 'extension') return handleExtension(rest);
@@ -690,14 +787,51 @@ function main() {
 function handleAuth(argv) {
   var sub = argv[0];
   if (!sub || sub === 'help') {
-    printSection('auth', ['login', 'logout', 'whoami']);
+    printSection('auth', ['signup', 'login', 'logout', 'whoami', 'password', 'delete-account']);
     return;
   }
+  if (sub === 'signup') return authSignup(argv.slice(1));
   if (sub === 'login') return authLogin(argv.slice(1));
   if (sub === 'logout') return authLogout();
   if (sub === 'whoami') return authWhoami();
+  if (sub === 'password') return authPassword(argv.slice(1));
+  if (sub === 'delete-account') return authDeleteAccount(argv.slice(1));
   error('Unknown auth command: ' + sub);
   process.exitCode = 1;
+}
+
+function handleVerify(argv) {
+  if (argv && argv[0] === 'help') {
+    printSection('verify', []);
+    return;
+  }
+  var args = parseArgs(argv);
+  var token = args._[0];
+  if (!token) {
+    error('Usage: poiva verify <token> [--url <server>]');
+    process.exitCode = 1;
+    return;
+  }
+  var session = getCurrentSession();
+  var baseUrl = args.url || (session && session.url) || 'https://getpoiva.com';
+  return requestPublic(baseUrl, 'GET', '/api/public/verify/' + encodeURIComponent(token)).then(function (result) {
+    var c = COLORS;
+    console.log('');
+    console.log(c.bold + result.title + c.reset + '  ' + c.dim + '(' + result.status + ')' + c.reset);
+    console.log(c.dim + result.organizationName + ' · ' + result.resourceType + ' ' + result.resourceId + c.reset);
+    if (result.summary) console.log(result.summary);
+    console.log('');
+    (result.timeline || []).forEach(function (step) {
+      console.log(displayCell(step.occurredAt) + '  ' + padRight(step.action || '', 14) + '  ' + (step.title || '') + '  ' + c.dim + '(' + step.status + ')' + c.reset);
+    });
+    console.log('');
+    console.log(c.dim + 'fingerprint: ' + result.fingerprint + c.reset);
+    if (result.verifiedAt) console.log(c.dim + 'verified at: ' + result.verifiedAt + c.reset);
+    console.log('');
+  }).catch(function (err) {
+    error('verify failed: ' + err.message);
+    process.exitCode = 1;
+  });
 }
 
 function handleSession(argv) {
@@ -1294,10 +1428,13 @@ function handleResource(resource, argv) {
     return;
   }
 
+  if (resource === 'mission' && sub === 'share') return missionShare(argv.slice(1));
+  if ((resource === 'mission' || resource === 'activity') && sub === 'events') return resourceEvents(resource, argv.slice(1));
+
   var remoteResult = maybeHandleRemoteResource(resource, sub, argv.slice(1));
   if (remoteResult !== null) return remoteResult;
 
-  if (sub === 'create' || sub === 'add' || sub === 'upload' || sub === 'submit') return resourceCreate(resource, argv.slice(1));
+  if (sub === 'create' || sub === 'add' || sub === 'upload' || sub === 'submit' || sub === 'run') return resourceCreate(resource, argv.slice(1));
   if (sub === 'get') return resourceGet(resource, argv.slice(1));
   if (sub === 'list') return resourceList(resource, argv.slice(1));
   if (sub === 'update') return resourceUpdate(resource, argv.slice(1));
@@ -1318,16 +1455,16 @@ function handleResource(resource, argv) {
 }
 
 function verbsFor(resource) {
-  if (resource === 'mission') return ['create', 'get', 'list', 'update', 'delete', 'archive', 'cancel', 'export', 'import', 'watch', 'timeline', 'graph'];
-  if (resource === 'activity') return ['create', 'list', 'get', 'update', 'delete', 'assign', 'start', 'complete', 'verify', 'watch'];
+  if (resource === 'mission') return ['create', 'get', 'list', 'update', 'delete', 'archive', 'cancel', 'export', 'import', 'watch', 'timeline', 'graph', 'share', 'events'];
+  if (resource === 'activity') return ['create', 'list', 'get', 'update', 'delete', 'assign', 'submit', 'approve', 'start', 'complete', 'verify', 'events', 'watch'];
   if (resource === 'participant') return ['create', 'list', 'get', 'update', 'delete', 'assign'];
   if (resource === 'capability') return ['list', 'search', 'create', 'update'];
   if (resource === 'knowledge') return ['add', 'upload', 'list', 'remove'];
   if (resource === 'objective' || resource === 'constraint' || resource === 'policy') return ['create', 'list', 'delete', 'update'];
-  if (resource === 'deliverable') return ['submit', 'list', 'download', 'approve', 'reject'];
-  if (resource === 'evidence') return ['upload', 'list', 'verify'];
-  if (resource === 'verification') return ['run', 'approve', 'reject', 'history'];
-  if (resource === 'settlement') return ['create', 'approve', 'export'];
+  if (resource === 'deliverable') return ['submit', 'list', 'get', 'delete', 'download', 'approve', 'reject'];
+  if (resource === 'evidence') return ['upload', 'list', 'get', 'verify'];
+  if (resource === 'verification') return ['run', 'get', 'evaluate', 'approve', 'reject', 'history'];
+  if (resource === 'settlement') return ['create', 'list', 'get', 'delete', 'confirm', 'export'];
   if (resource === 'event') return ['list', 'watch', 'tail'];
   return ['create', 'get', 'list', 'update', 'delete'];
 }
@@ -1358,39 +1495,217 @@ function authLogin(argv) {
       return prompt.ask('Session name', session.name);
     }).then(function (name) {
       session.name = name || session.name;
-      return prompt.ask('API Token', '');
+      return prompt.ask('API Token (leave blank to log in with email + password)', '');
     }).then(function (token) {
-      session.token = token;
-      return verifySession(session).then(function (whoami) {
-        prompt.close();
-        saveSession(session);
-        setCurrentSession(session.name);
-        info('Created session: ' + session.name + ' (' + whoami.organization + ')');
+      if (token) {
+        session.token = token;
+        return verifySession(session);
+      }
+      return prompt.ask('Email', '').then(function (email) {
+        return prompt.ask('Password', '').then(function (password) {
+          return loginWithPassword(session.url, email, password);
+        });
       });
+    }).then(function (result) {
+      prompt.close();
+      if (result.token) session.token = result.token;
+      saveSession(session);
+      setCurrentSession(session.name);
+      info('Created session: ' + session.name + ' (' + result.organization + ')');
     }).catch(function (err) {
       prompt.close();
       throw err;
     });
   }
 
-  if (!args.token) {
-    error('auth login requires --token or interactive mode');
-    process.exitCode = 1;
-    return;
+  if (args.token) {
+    return verifySession(session).then(function (whoami) {
+      saveSession(session);
+      setCurrentSession(session.name);
+      info('Created session: ' + session.name + ' (' + whoami.organization + ')');
+    }).catch(function (err) {
+      error('Session verification failed: ' + err.message);
+      process.exitCode = 1;
+    });
   }
-  return verifySession(session).then(function (whoami) {
+
+  if (args.email && args.password) {
+    return loginWithPassword(session.url, args.email, args.password).then(function (result) {
+      session.token = result.token;
+      saveSession(session);
+      setCurrentSession(session.name);
+      info('Created session: ' + session.name + ' (' + result.organization + ')');
+    }).catch(function (err) {
+      error('Login failed: ' + err.message);
+      process.exitCode = 1;
+    });
+  }
+
+  error('auth login requires --token, --email/--password, or interactive mode');
+  process.exitCode = 1;
+}
+
+function loginWithPassword(url, email, password) {
+  return requestPublic(url, 'POST', '/api/cloud/login', { email: email, password: password }).then(function (resp) {
+    return {
+      token: resp.accessToken,
+      organization: resp.organization && resp.organization.name ? resp.organization.name : 'organization',
+      user: resp.user && resp.user.email ? resp.user.email : 'user'
+    };
+  });
+}
+
+function authSignup(argv) {
+  var args = parseArgs(argv);
+  var session = {
+    name: args.name || 'default',
+    url: args.url || 'https://getpoiva.com',
+    token: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  var fields = {
+    organizationName: args.organization || args.org || '',
+    email: args.email || '',
+    password: args.password || '',
+    displayName: args.displayName || args['display-name'] || ''
+  };
+  var interactive = argv.length === 0 && process.stdin.isTTY;
+
+  var gather;
+  if (interactive) {
+    var prompt = createPrompt();
+    gather = prompt.ask('Poiva Server', session.url).then(function (url) {
+      session.url = url || session.url;
+      return prompt.ask('Session name', session.name);
+    }).then(function (name) {
+      session.name = name || session.name;
+      return prompt.ask('Organization name', fields.organizationName);
+    }).then(function (v) { fields.organizationName = v; return prompt.ask('Email', fields.email); })
+      .then(function (v) { fields.email = v; return prompt.ask('Password', fields.password); })
+      .then(function (v) { fields.password = v; return prompt.ask('Display name', fields.displayName); })
+      .then(function (v) { fields.displayName = v; prompt.close(); })
+      .catch(function (err) { prompt.close(); throw err; });
+  } else {
+    gather = Promise.resolve();
+  }
+
+  return gather.then(function () {
+    if (!fields.organizationName || !fields.email || !fields.password) {
+      throw new Error('auth signup requires --organization, --email, and --password (or interactive mode)');
+    }
+    return requestPublic(session.url, 'POST', '/api/cloud/signup', {
+      organizationName: fields.organizationName,
+      email: fields.email,
+      password: fields.password,
+      displayName: fields.displayName || undefined
+    });
+  }).then(function (resp) {
+    session.token = resp.accessToken;
     saveSession(session);
     setCurrentSession(session.name);
-    info('Created session: ' + session.name + ' (' + whoami.organization + ')');
+    info('Created organization: ' + (resp.organization && resp.organization.name ? resp.organization.name : fields.organizationName));
+    info('Created session: ' + session.name);
   }).catch(function (err) {
-    error('Session verification failed: ' + err.message);
+    error('Signup failed: ' + err.message);
     process.exitCode = 1;
   });
 }
 
 function authLogout() {
-  clearCurrentSession();
-  info('Current session cleared.');
+  var session = getCurrentSession();
+  if (!session || !session.token || /^pk_live_/i.test(String(session.token).trim())) {
+    clearCurrentSession();
+    info('Current session cleared.');
+    return;
+  }
+  return requestCloud(session, 'POST', '/api/cloud/logout').then(function () {
+    clearCurrentSession();
+    info('Logged out and cleared current session.');
+  }).catch(function (err) {
+    clearCurrentSession();
+    info('Current session cleared (server logout failed: ' + err.message + ').');
+  });
+}
+
+function authPassword(argv) {
+  var args = parseArgs(argv);
+  var session = getCurrentSession();
+  if (!session) {
+    error('No current session. Run "poiva auth login" first.');
+    process.exitCode = 1;
+    return;
+  }
+  if (/^pk_live_/i.test(String(session.token || '').trim())) {
+    error('auth password requires a session token (email/password login), not an API key.');
+    process.exitCode = 1;
+    return;
+  }
+  var interactive = argv.length === 0 && process.stdin.isTTY;
+  var gather;
+  if (interactive) {
+    var prompt = createPrompt();
+    gather = prompt.ask('Current password', '').then(function (current) {
+      return prompt.ask('New password', '').then(function (next) {
+        prompt.close();
+        return { currentPassword: current, newPassword: next };
+      });
+    }).catch(function (err) { prompt.close(); throw err; });
+  } else {
+    gather = Promise.resolve({
+      currentPassword: args['current-password'] || args.current || '',
+      newPassword: args['new-password'] || args['new'] || ''
+    });
+  }
+  return gather.then(function (payload) {
+    if (!payload.newPassword) throw new Error('auth password requires --new-password <password> (or interactive mode)');
+    return requestCloud(session, 'PATCH', '/api/cloud/me/password', payload);
+  }).then(function () {
+    info('Password changed. Other sessions for this account have been signed out.');
+  }).catch(function (err) {
+    error('Change password failed: ' + err.message);
+    process.exitCode = 1;
+  });
+}
+
+function authDeleteAccount(argv) {
+  var args = parseArgs(argv);
+  var session = getCurrentSession();
+  if (!session) {
+    error('No current session. Run "poiva auth login" first.');
+    process.exitCode = 1;
+    return;
+  }
+  if (/^pk_live_/i.test(String(session.token || '').trim())) {
+    error('auth delete-account requires a session token (email/password login), not an API key.');
+    process.exitCode = 1;
+    return;
+  }
+  var confirmPromise;
+  if (args.yes || args.force) {
+    confirmPromise = Promise.resolve(true);
+  } else if (process.stdin.isTTY) {
+    var prompt = createPrompt();
+    confirmPromise = prompt.ask('Type "DELETE" to permanently delete your account', '').then(function (answer) {
+      prompt.close();
+      return answer === 'DELETE';
+    }).catch(function (err) { prompt.close(); throw err; });
+  } else {
+    confirmPromise = Promise.resolve(false);
+  }
+  return confirmPromise.then(function (confirmed) {
+    if (!confirmed) {
+      info('Cancelled.');
+      return;
+    }
+    return requestCloud(session, 'DELETE', '/api/cloud/me').then(function () {
+      clearCurrentSession();
+      info('Account deleted. Current session cleared.');
+    });
+  }).catch(function (err) {
+    error('Delete account failed: ' + err.message);
+    process.exitCode = 1;
+  });
 }
 
 function authWhoami() {
@@ -1582,6 +1897,15 @@ function sessionImport(argv) {
 }
 
 function orgCurrent() {
+  var session = getCurrentSession();
+  if (session) {
+    return requestCloud(session, 'GET', '/api/cloud/organization').then(function (org) {
+      console.log(org.name);
+    }).catch(function (err) {
+      error('org current failed: ' + err.message);
+      process.exitCode = 1;
+    });
+  }
   var workspace = requireWorkspace();
   var org = currentOrg(workspace);
   if (!org) {
@@ -1592,6 +1916,11 @@ function orgCurrent() {
 }
 
 function orgList() {
+  var session = getCurrentSession();
+  if (session) {
+    info('This session is server-backed; accounts belong to a single organization. Run "poiva org describe".');
+    return;
+  }
   var workspace = requireWorkspace();
   if (workspace.organizations.length === 0) {
     info('No organizations.');
@@ -1604,6 +1933,12 @@ function orgList() {
 }
 
 function orgSwitch(argv) {
+  var session = getCurrentSession();
+  if (session) {
+    error('org switch is not available for server-backed sessions; accounts belong to a single organization.');
+    process.exitCode = 1;
+    return;
+  }
   var needle = argv[0];
   if (!needle) {
     error('org switch <name-or-slug>');
@@ -1623,6 +1958,25 @@ function orgSwitch(argv) {
 }
 
 function orgDescribe() {
+  var session = getCurrentSession();
+  if (session) {
+    return requestCloud(session, 'GET', '/api/cloud/organization').then(function (org) {
+      console.log('Organization: ' + org.name);
+      console.log('Slug: ' + org.slug);
+      console.log('Status: ' + org.status);
+      console.log('ID: ' + org.id);
+      console.log('Members: ' + org.memberCount);
+      if (org.members && org.members.length) {
+        console.log('');
+        printTable(['role', 'displayName', 'email'], org.members.map(function (m) {
+          return [displayCell(m.role), displayCell(m.displayName), displayCell(m.email)];
+        }));
+      }
+    }).catch(function (err) {
+      error('org describe failed: ' + err.message);
+      process.exitCode = 1;
+    });
+  }
   var workspace = requireWorkspace();
   var org = currentOrg(workspace);
   if (!org) {
@@ -1734,7 +2088,7 @@ function maybeHandleRemoteResource(resource, verb, argv) {
     return Promise.resolve();
   }
 
-  var mutatingVerbs = ['create', 'add', 'upload', 'submit', 'update', 'approve', 'reject', 'archive', 'cancel', 'start', 'complete', 'verify', 'run'];
+  var mutatingVerbs = ['create', 'add', 'upload', 'submit', 'update', 'approve', 'reject', 'archive', 'cancel', 'start', 'complete', 'verify', 'run', 'evaluate', 'confirm', 'get', 'delete', 'remove'];
   var shouldCatch = mutatingVerbs.indexOf(verb) !== -1 || verb === 'export';
 
   var run = remoteResourceOperation(session, resource, def, verb, argv);
@@ -1748,7 +2102,14 @@ function maybeHandleRemoteResource(resource, verb, argv) {
 }
 
 function remoteResourceOperation(session, resource, def, verb, argv) {
-  if (verb === 'create' || verb === 'add' || verb === 'upload' || verb === 'submit') {
+  // Explicit lifecycle actions (cancel/assign/submit/approve/evaluate/confirm) take priority
+  // over the generic verb handling below — e.g. 'submit' means create-a-deliverable for
+  // deliverable, but the dedicated activity-submitted action for activity.
+  if (def.actions && def.actions[verb]) {
+    return remoteAction(session, resource, def, verb, argv);
+  }
+
+  if (verb === 'create' || verb === 'add' || verb === 'upload' || verb === 'submit' || verb === 'run') {
     return remoteCreate(session, resource, def, argv);
   }
 
@@ -1760,13 +2121,31 @@ function remoteResourceOperation(session, resource, def, verb, argv) {
     return remoteExport(session, resource, def, argv);
   }
 
-  var stateVerbs = ['update', 'approve', 'reject', 'archive', 'cancel', 'start', 'complete', 'verify', 'run'];
+  if (verb === 'get') {
+    if (!def.getPath) {
+      error(resource + ' get is not available through the remote API.');
+      process.exitCode = 1;
+      return Promise.resolve();
+    }
+    return remoteGet(session, resource, def, argv);
+  }
+
+  if (verb === 'delete' || verb === 'remove') {
+    if (!def.deletePath) {
+      error(resource + ' ' + verb + ' is not available through the remote API — ' + resource + ' records must stay immutable once created, per the protocol spec.');
+      process.exitCode = 1;
+      return Promise.resolve();
+    }
+    return remoteDelete(session, resource, def, argv);
+  }
+
+  var stateVerbs = ['update', 'approve', 'reject', 'archive', 'cancel', 'start', 'complete', 'verify'];
   if (stateVerbs.indexOf(verb) !== -1) {
     return remoteUpdateState(session, resource, def, verb, argv);
   }
 
-  if (verb === 'delete' || verb === 'remove' || verb === 'get' || verb === 'download' || verb === 'graph' || verb === 'assign' || verb === 'import' || verb === 'search') {
-    error(resource + ' ' + verb + ' is not available through the remote API — only create, list, and state updates are.');
+  if (verb === 'download' || verb === 'graph' || verb === 'assign' || verb === 'import' || verb === 'search') {
+    error(resource + ' ' + verb + ' is not available through the remote API.');
     process.exitCode = 1;
     return Promise.resolve();
   }
@@ -1807,9 +2186,65 @@ function remoteCreate(session, resource, def, argv) {
   return gather.then(function (payload) {
     mergeFlagFields(payload, args);
     if (payload.amount !== undefined && payload.amount !== '') payload.amount = Number(payload.amount);
+    if (resource === 'deliverable' && typeof payload.acceptanceCriteria === 'string') {
+      payload.acceptanceCriteria = payload.acceptanceCriteria.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    }
     return requestCloud(session, 'POST', def.createPath(split.parentId), payload);
   }).then(function (created) {
     console.log(stringifyRecord(def.toRow(created)));
+  });
+}
+
+function remoteGet(session, resource, def, argv) {
+  var id = argv[0];
+  if (!id) {
+    error(resource + ' get <id>');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  return requestCloud(session, 'GET', def.getPath(id)).then(function (item) {
+    console.log(stringifyRecord(item));
+  });
+}
+
+function remoteDelete(session, resource, def, argv) {
+  var id = argv[0];
+  if (!id) {
+    error(resource + ' delete <id>');
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  return requestCloud(session, 'DELETE', def.deletePath(id)).then(function () {
+    info('Deleted ' + resource + ': ' + id);
+  });
+}
+
+function remoteAction(session, resource, def, verb, argv) {
+  var action = def.actions[verb];
+  var id = argv[0];
+  if (!id) {
+    var usageFlags = (action.bodyFields || []).map(function (f) { return '[--' + f + ' VALUE]'; }).join(' ');
+    error(resource + ' ' + verb + ' <id>' + (usageFlags ? ' ' + usageFlags : ''));
+    process.exitCode = 1;
+    return Promise.resolve();
+  }
+  var body = null;
+  if (action.bodyFields && action.bodyFields.length) {
+    var args = parseArgs(argv.slice(1));
+    body = {};
+    action.bodyFields.forEach(function (field) {
+      if (args[field] !== undefined) body[field] = args[field];
+    });
+    var missing = (action.requiredFields || []).filter(function (field) { return !body[field]; });
+    if (missing.length) {
+      var hint = (verb === 'evaluate' && def.stateValues) ? (' (outcome: ' + def.stateValues.join('|') + ')') : '';
+      error(resource + ' ' + verb + ' <id> ' + missing.map(function (f) { return '--' + f + ' VALUE'; }).join(' ') + hint);
+      process.exitCode = 1;
+      return Promise.resolve();
+    }
+  }
+  return requestCloud(session, action.method, action.path(id), body).then(function (updated) {
+    console.log(stringifyRecord(def.toRow(updated)));
   });
 }
 
@@ -1828,7 +2263,7 @@ function remoteUpdateState(session, resource, def, verb, argv) {
   var args = parseArgs(argv.slice(1));
   var value = args[def.stateField];
   if (!value && verb !== 'update') {
-    value = statusForVerb(verb);
+    value = (def.verbStateAliases && def.verbStateAliases[verb]) || statusForVerb(verb);
   }
   if (!value) {
     error(resource + ' ' + verb + ' <id> --' + def.stateField + ' <' + def.stateValues.join('|') + '>');
@@ -1903,6 +2338,73 @@ function writeExportPayload(resource, items, args) {
     return;
   }
   console.log(output);
+}
+
+function resourceEvents(resource, argv) {
+  var id = argv[0];
+  var session = getCurrentSession();
+  if (!session) {
+    error(resource + ' events requires an active session. Run "poiva auth login" first.');
+    process.exitCode = 1;
+    return;
+  }
+  if (!id) {
+    error('Usage: poiva ' + resource + ' events <id>');
+    process.exitCode = 1;
+    return;
+  }
+  var def = REMOTE_RESOURCE_DEFS[resource];
+  return requestCloud(session, 'GET', def.eventsPath(id)).then(function (events) {
+    if (!events || events.length === 0) {
+      info('No events.');
+      return;
+    }
+    events.forEach(function (e) {
+      console.log(displayCell(e.occurredAt) + '  ' + padRight(e.type || '', 24) + '  ' + (e.subjectType || '') + ' ' + (e.subjectId || ''));
+    });
+  }).catch(function (err) {
+    error(resource + ' events failed: ' + err.message);
+    process.exitCode = 1;
+  });
+}
+
+function missionShare(argv) {
+  var action = argv[0];
+  var missionId = argv[1];
+  if (!action || ['create', 'get', 'revoke'].indexOf(action) === -1 || !missionId) {
+    error('Usage: poiva mission share <create|get|revoke> <missionId>');
+    process.exitCode = 1;
+    return;
+  }
+  var session = getCurrentSession();
+  if (!session) {
+    error('mission share requires an active session. Run "poiva auth login" first.');
+    process.exitCode = 1;
+    return;
+  }
+  var apiPath = '/api/cloud/workspace/missions/' + missionId + '/share';
+  if (action === 'create') {
+    return requestCloud(session, 'POST', apiPath).then(function (share) {
+      console.log(stringifyRecord(share));
+    }).catch(function (err) {
+      error('mission share create failed: ' + err.message);
+      process.exitCode = 1;
+    });
+  }
+  if (action === 'get') {
+    return requestCloud(session, 'GET', apiPath).then(function (share) {
+      console.log(stringifyRecord(share));
+    }).catch(function (err) {
+      error('mission share get failed: ' + err.message);
+      process.exitCode = 1;
+    });
+  }
+  return requestCloud(session, 'DELETE', apiPath).then(function () {
+    info('Revoked share link for mission: ' + missionId);
+  }).catch(function (err) {
+    error('mission share revoke failed: ' + err.message);
+    process.exitCode = 1;
+  });
 }
 
 function resourceCreate(resource, argv) {
@@ -2584,8 +3086,6 @@ function requestCloud(session, method, apiPath, body) {
   }
   var base = normalizeBaseUrl(session.url);
   var target = new URL(base + apiPath);
-  var isHttps = target.protocol === 'https:';
-  var transport = isHttps ? https : http;
   var payload = body ? JSON.stringify(body) : null;
   var token = String(session.token || '').trim();
   var headers = { 'Accept': 'application/json' };
@@ -2601,7 +3101,26 @@ function requestCloud(session, method, apiPath, body) {
     headers['Content-Type'] = 'application/json';
     headers['Content-Length'] = Buffer.byteLength(payload);
   }
+  return httpJson(target, method, headers, payload);
+}
 
+// Unauthenticated request, for endpoints that take no session: /api/cloud/login,
+// /api/cloud/signup, and the public /api/public/verify/{token} share-link lookup.
+function requestPublic(baseUrl, method, apiPath, body) {
+  var base = normalizeBaseUrl(baseUrl || 'https://getpoiva.com');
+  var target = new URL(base + apiPath);
+  var payload = body ? JSON.stringify(body) : null;
+  var headers = { 'Accept': 'application/json' };
+  if (payload) {
+    headers['Content-Type'] = 'application/json';
+    headers['Content-Length'] = Buffer.byteLength(payload);
+  }
+  return httpJson(target, method, headers, payload);
+}
+
+function httpJson(target, method, headers, payload) {
+  var isHttps = target.protocol === 'https:';
+  var transport = isHttps ? https : http;
   return new Promise(function (resolve, reject) {
     var req = transport.request({
       protocol: target.protocol,

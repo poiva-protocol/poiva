@@ -112,6 +112,16 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CurrentAccountResponse" }
+    delete:
+      tags: [Auth]
+      operationId: deleteAccount
+      summary: Delete the authenticated user's account.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204":
+          description: Account deleted.
+
+  /api/cloud/me/password:
     patch:
       tags: [Auth]
       operationId: changePassword
@@ -124,15 +134,7 @@ paths:
             schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
       responses:
         "204":
-          description: Password changed.
-    delete:
-      tags: [Auth]
-      operationId: deleteAccount
-      summary: Delete the authenticated user's account.
-      security: [{ bearerAuth: [] }]
-      responses:
-        "204":
-          description: Account deleted.
+          description: Password changed. All other sessions for this account are invalidated.
 
   /api/cloud/organization:
     get:
