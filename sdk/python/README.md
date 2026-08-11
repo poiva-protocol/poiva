@@ -16,11 +16,11 @@ pip install poiva-sdk
 from poiva import PoivaClient
 
 # Authenticate with a session (bearer token)...
-auth = PoivaClient("https://api.getpoiva.com").login("you@example.com", "password")
-client = PoivaClient("https://api.getpoiva.com", access_token=auth.accessToken)
+auth = PoivaClient("https://getpoiva.com").login("you@example.com", "password")
+client = PoivaClient("https://getpoiva.com", access_token=auth.accessToken)
 
 # ...or with an organization API key.
-client2 = PoivaClient("https://api.getpoiva.com", api_key="pk_live_<keyId>.<secret>")
+client2 = PoivaClient("https://getpoiva.com", api_key="pk_live_<keyId>.<secret>")
 
 mission = client.missions.create(
     title="Migrate billing to Stripe",

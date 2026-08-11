@@ -24,11 +24,11 @@ import com.poiva.sdk.PoivaClient;
 import com.poiva.sdk.model.*;
 
 // Authenticate with a session (bearer token)...
-AuthResponse auth = new PoivaClient("https://api.getpoiva.com").login("you@example.com", "password");
-PoivaClient client = PoivaClient.withAccessToken("https://api.getpoiva.com", auth.accessToken());
+AuthResponse auth = new PoivaClient("https://getpoiva.com").login("you@example.com", "password");
+PoivaClient client = PoivaClient.withAccessToken("https://getpoiva.com", auth.accessToken());
 
 // ...or with an organization API key.
-PoivaClient client2 = PoivaClient.withApiKey("https://api.getpoiva.com", "pk_live_<keyId>.<secret>");
+PoivaClient client2 = PoivaClient.withApiKey("https://getpoiva.com", "pk_live_<keyId>.<secret>");
 
 Mission mission = client.missions.create(
         "Migrate billing to Stripe", "Replace the legacy billing provider without downtime.", "HIGH");

@@ -31,7 +31,7 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: https://api.getpoiva.com
+  - url: https://getpoiva.com
     description: Poiva Cloud (hosted reference implementation)
   - url: http://localhost:8080
     description: Local development server

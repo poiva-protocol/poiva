@@ -1,0 +1,26 @@
+.DS_Store
+node_modules/
+dist/
+*.log
+
+# CLI local workspace state (created at runtime, not source)
+.poiva/
+
+# TypeScript
+sdk/typescript/lib/
+sdk/typescript/*.tsbuildinfo
+
+# Python
+sdk/python/__pycache__/
+sdk/python/**/__pycache__/
+sdk/python/*.egg-info/
+sdk/python/build/
+sdk/python/dist/
+sdk/python/.pytest_cache/
+
+# Java
+sdk/java/target/
+*.class
+*.jar
+.idea/
+*.iml

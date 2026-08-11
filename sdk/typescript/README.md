@@ -16,18 +16,18 @@ npm install @poiva/sdk
 import { PoivaClient } from "@poiva/sdk";
 
 // Authenticate with a session (bearer token)...
-const auth = await new PoivaClient({ baseUrl: "https://api.getpoiva.com" }).login(
+const auth = await new PoivaClient({ baseUrl: "https://getpoiva.com" }).login(
   "you@example.com",
   "password",
 );
 const client = new PoivaClient({
-  baseUrl: "https://api.getpoiva.com",
+  baseUrl: "https://getpoiva.com",
   accessToken: auth.accessToken,
 });
 
 // ...or with an organization API key.
 const client2 = new PoivaClient({
-  baseUrl: "https://api.getpoiva.com",
+  baseUrl: "https://getpoiva.com",
   apiKey: "pk_live_<keyId>.<secret>",
 });
 

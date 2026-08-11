@@ -47,7 +47,7 @@ var COMMAND_HELP = {
     },
     examples: [
       'poiva auth login',
-      'poiva auth login --name production --url https://api.getpoiva.com --token abc123',
+      'poiva auth login --name production --url https://getpoiva.com --token abc123',
       'poiva auth logout',
       'poiva auth whoami'
     ]
@@ -1345,7 +1345,7 @@ function authLogin(argv) {
   var interactive = args.interactive || (argv.length === 0 && process.stdin.isTTY);
   var session = {
     name: args.name || 'default',
-    url: args.url || 'https://api.getpoiva.com',
+    url: args.url || 'https://getpoiva.com',
     token: args.token || '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -1443,7 +1443,7 @@ function sessionAdd(argv) {
     var prompt = createPrompt();
     return prompt.ask('Session name', session.name || 'default').then(function (name) {
       session.name = name;
-      return prompt.ask('Poiva Server', session.url || 'https://api.getpoiva.com');
+      return prompt.ask('Poiva Server', session.url || 'https://getpoiva.com');
     }).then(function (url) {
       session.url = url;
       return prompt.ask('API token', session.token || '');

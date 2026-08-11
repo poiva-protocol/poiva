@@ -24,7 +24,7 @@ import type {
 } from "./types.js";
 
 export interface PoivaClientOptions {
-  /** Base URL of a Poiva-conformant server, e.g. "https://api.getpoiva.com". */
+  /** Base URL of a Poiva-conformant server, e.g. "https://getpoiva.com". */
   baseUrl: string;
   /** Session bearer token, as returned by login()/signup(). Mutually exclusive with apiKey. */
   accessToken?: string;

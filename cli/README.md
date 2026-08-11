@@ -22,7 +22,7 @@ npx poiva --help
 ## Quick start
 
 ```bash
-poiva auth login --url https://api.getpoiva.com
+poiva auth login --url https://getpoiva.com
 poiva mission create --file mission.yaml
 poiva mission list
 poiva mission update mission-123 --state executing
