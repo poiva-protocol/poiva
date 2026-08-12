@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/knowledge-capsule.schema.json",
+  "title": "Knowledge Capsule",
+  "description": "A versioned reference document, dataset, or media asset attached to a mission. Immutable once created. See docs/protocol/09-knowledge-capsules.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "type": { "$ref": "common.schema.json#/$defs/knowledgeType" },
+    "locator": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where the knowledge asset lives — a URL, repository path, or other addressable reference."
+    },
+    "version": {
+      "anyOf": [{ "type": "integer" }, { "type": "null" }]
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "title", "type", "locator", "createdAt"],
+  "additionalProperties": false
+}

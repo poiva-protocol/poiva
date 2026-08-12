@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/objective.schema.json",
+  "title": "Objective",
+  "description": "A measurable goal a mission is working toward. See docs/protocol/21-objectives.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "priority": {
+      "anyOf": [{ "$ref": "common.schema.json#/$defs/priority" }, { "type": "null" }]
+    },
+    "targetMetric": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }],
+      "description": "Free-form description of how success is measured."
+    },
+    "state": { "$ref": "common.schema.json#/$defs/objectiveState" },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "title", "state", "createdAt"],
+  "additionalProperties": false
+}

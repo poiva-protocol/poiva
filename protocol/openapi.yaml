@@ -11,16 +11,22 @@ info:
     Python, Java) and the `poiva` CLI are built against.
 
 
-    Two design choices are intentional, not omissions:
+    Design choices that are intentional, not omissions:
 
 
-    1. Workspace resources (missions, activities, deliverables, evidence, verifications,
-       settlements) have no single-item GET and no delete. Resources are read back via their
-       parent's list endpoint, and are retired by moving them to a terminal state
-       (`CANCELLED`, `REJECTED`, `ARCHIVED`, ...) rather than being removed.
-    2. Updates are restricted to a resource's own state/outcome transition — there is no
-       generic "PATCH arbitrary fields" endpoint. This keeps every mutation representable as a
-       single, meaningful lifecycle event in the protocol's append-only event log.
+    1. Every resource has a single-item GET. Evidence, Artifact, Knowledge Capsule, and Event are
+       immutable once created — no update or delete — matching the protocol's append-only
+       invariants for proof-of-work records. Everything else (Mission, Activity, Deliverable,
+       Settlement, Participant, Capability, Estimate, Planning Proposal, Objective, Constraint,
+       Policy) supports delete: soft-delete (hidden from `list`, not erased) for the original six
+       workspace resources, hard delete for the rest.
+    2. Beyond a resource's generic state/outcome PATCH, some resources also expose explicit
+       lifecycle actions (mission cancel, activity assign/submit/approve, verification evaluate,
+       settlement confirm, participant attach-capability, estimate/planning-proposal accept) —
+       named by path rather than folded into the generic PATCH, because the protocol spec names
+       them as distinct actions. Both paths are validated through the same transition graph, so
+       every mutation is still representable as a single, meaningful lifecycle event in the
+       protocol's append-only event log (see /events).
 
 
     A different Poiva-conformant server is free to implement this same contract differently
@@ -51,6 +57,26 @@ tags:
   - name: Settlements
   - name: Verification Links
     description: Public, unauthenticated share links for a mission's verification timeline.
+  - name: Participants
+    description: Org-scoped. Real participants are also auto-provisioned per organization member on first authenticated request.
+  - name: Capabilities
+    description: Org-scoped.
+  - name: Knowledge Capsules
+    description: Mission-scoped. Immutable once created.
+  - name: Estimates
+    description: Mission-scoped.
+  - name: Planning Proposals
+    description: Mission-scoped.
+  - name: Artifacts
+    description: Deliverable-scoped. Immutable once created.
+  - name: Objectives
+    description: Mission-scoped.
+  - name: Constraints
+    description: Mission-scoped.
+  - name: Policies
+    description: Org-scoped, not tied to a mission.
+  - name: Events
+    description: Org-scoped, read-only append-only log. Events are emitted as a side effect of other mutations, never created directly.
 
 paths:
   /api/cloud/signup:
@@ -152,7 +178,7 @@ paths:
     get:
       tags: [Missions]
       operationId: listMissions
-      summary: List every mission in the caller's organization.
+      summary: List every non-deleted mission in the caller's organization.
       responses:
         "200":
           description: Missions.
@@ -177,6 +203,32 @@ paths:
             application/json:
               schema: { $ref: "schema/mission.schema.json" }
 
+  /api/cloud/workspace/missions/{id}:
+    get:
+      tags: [Missions]
+      operationId: getMission
+      summary: Get a single mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Mission.
+          content:
+            application/json:
+              schema: { $ref: "schema/mission.schema.json" }
+    delete:
+      tags: [Missions]
+      operationId: deleteMission
+      summary: Soft-delete a mission (hidden from list, not erased).
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Mission deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/mission.schema.json" }
+
   /api/cloud/workspace/missions/{id}/state:
     patch:
       tags: [Missions]
@@ -195,6 +247,36 @@ paths:
           content:
             application/json:
               schema: { $ref: "schema/mission.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/cancel:
+    post:
+      tags: [Missions]
+      operationId: cancelMission
+      summary: Transition a mission to CANCELLED. Equivalent to the generic state PATCH, exposed as a named action.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Mission cancelled.
+          content:
+            application/json:
+              schema: { $ref: "schema/mission.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/events:
+    get:
+      tags: [Missions]
+      operationId: missionEvents
+      summary: List every event recorded against a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Events.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/event.schema.json" }
 
   /api/cloud/workspace/missions/{id}/activities:
     get:
@@ -229,6 +311,32 @@ paths:
             application/json:
               schema: { $ref: "schema/activity.schema.json" }
 
+  /api/cloud/workspace/activities/{id}:
+    get:
+      tags: [Activities]
+      operationId: getActivity
+      summary: Get a single activity.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Activity.
+          content:
+            application/json:
+              schema: { $ref: "schema/activity.schema.json" }
+    delete:
+      tags: [Activities]
+      operationId: deleteActivity
+      summary: Soft-delete an activity (hidden from list, not erased).
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Activity deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/activity.schema.json" }
+
   /api/cloud/workspace/activities/{id}/state:
     patch:
       tags: [Activities]
@@ -247,6 +355,70 @@ paths:
           content:
             application/json:
               schema: { $ref: "schema/activity.schema.json" }
+
+  /api/cloud/workspace/activities/{id}/assign:
+    post:
+      tags: [Activities]
+      operationId: assignActivity
+      summary: >
+        Assign a participant to the activity. Omitting participantId assigns the caller's own
+        (auto-provisioned) participant.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActivityAssignRequest" }
+      responses:
+        "200":
+          description: Activity assigned.
+          content:
+            application/json:
+              schema: { $ref: "schema/activity.schema.json" }
+
+  /api/cloud/workspace/activities/{id}/submit:
+    post:
+      tags: [Activities]
+      operationId: submitActivity
+      summary: Transition an activity to SUBMITTED.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Activity submitted.
+          content:
+            application/json:
+              schema: { $ref: "schema/activity.schema.json" }
+
+  /api/cloud/workspace/activities/{id}/approve:
+    post:
+      tags: [Activities]
+      operationId: approveActivity
+      summary: Transition an activity to APPROVED.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Activity approved.
+          content:
+            application/json:
+              schema: { $ref: "schema/activity.schema.json" }
+
+  /api/cloud/workspace/activities/{id}/events:
+    get:
+      tags: [Activities]
+      operationId: activityEvents
+      summary: List every event recorded against an activity.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Events.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/event.schema.json" }
 
   /api/cloud/workspace/missions/{id}/deliverables:
     get:
@@ -277,6 +449,32 @@ paths:
       responses:
         "200":
           description: Deliverable created.
+          content:
+            application/json:
+              schema: { $ref: "schema/deliverable.schema.json" }
+
+  /api/cloud/workspace/deliverables/{id}:
+    get:
+      tags: [Deliverables]
+      operationId: getDeliverable
+      summary: Get a single deliverable.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Deliverable.
+          content:
+            application/json:
+              schema: { $ref: "schema/deliverable.schema.json" }
+    delete:
+      tags: [Deliverables]
+      operationId: deleteDeliverable
+      summary: Soft-delete a deliverable (hidden from list, not erased).
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Deliverable deleted.
           content:
             application/json:
               schema: { $ref: "schema/deliverable.schema.json" }
@@ -333,6 +531,67 @@ paths:
             application/json:
               schema: { $ref: "schema/evidence.schema.json" }
 
+  /api/cloud/workspace/evidence/{id}:
+    get:
+      tags: [Evidence]
+      operationId: getEvidence
+      summary: Get a single piece of evidence. No delete — evidence is immutable once created.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Evidence.
+          content:
+            application/json:
+              schema: { $ref: "schema/evidence.schema.json" }
+
+  /api/cloud/workspace/deliverables/{id}/artifacts:
+    get:
+      tags: [Artifacts]
+      operationId: listArtifacts
+      summary: List every artifact attached to a deliverable.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Artifacts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/artifact.schema.json" }
+    post:
+      tags: [Artifacts]
+      operationId: createArtifact
+      summary: Attach an artifact to a deliverable.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ArtifactCreateRequest" }
+      responses:
+        "200":
+          description: Artifact created.
+          content:
+            application/json:
+              schema: { $ref: "schema/artifact.schema.json" }
+
+  /api/cloud/workspace/artifacts/{id}:
+    get:
+      tags: [Artifacts]
+      operationId: getArtifact
+      summary: Get a single artifact. No delete — artifacts are immutable once created.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Artifact.
+          content:
+            application/json:
+              schema: { $ref: "schema/artifact.schema.json" }
+
   /api/cloud/workspace/deliverables/{id}/verifications:
     get:
       tags: [Verifications]
@@ -366,6 +625,20 @@ paths:
             application/json:
               schema: { $ref: "schema/verification.schema.json" }
 
+  /api/cloud/workspace/verifications/{id}:
+    get:
+      tags: [Verifications]
+      operationId: getVerification
+      summary: Get a single verification.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Verification.
+          content:
+            application/json:
+              schema: { $ref: "schema/verification.schema.json" }
+
   /api/cloud/workspace/verifications/{id}/outcome:
     patch:
       tags: [Verifications]
@@ -378,6 +651,25 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/VerificationOutcomeUpdateRequest" }
+      responses:
+        "200":
+          description: Verification updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/verification.schema.json" }
+
+  /api/cloud/workspace/verifications/{id}/evaluate:
+    post:
+      tags: [Verifications]
+      operationId: evaluateVerification
+      summary: Record a verification's outcome with optional notes. Equivalent to the outcome PATCH, exposed as a named action.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerificationEvaluateRequest" }
       responses:
         "200":
           description: Verification updated.
@@ -418,6 +710,32 @@ paths:
             application/json:
               schema: { $ref: "schema/settlement.schema.json" }
 
+  /api/cloud/workspace/settlements/{id}:
+    get:
+      tags: [Settlements]
+      operationId: getSettlement
+      summary: Get a single settlement.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Settlement.
+          content:
+            application/json:
+              schema: { $ref: "schema/settlement.schema.json" }
+    delete:
+      tags: [Settlements]
+      operationId: deleteSettlement
+      summary: Soft-delete a settlement (hidden from list, not erased).
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Settlement deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/settlement.schema.json" }
+
   /api/cloud/workspace/settlements/{id}/state:
     patch:
       tags: [Settlements]
@@ -436,6 +754,615 @@ paths:
           content:
             application/json:
               schema: { $ref: "schema/settlement.schema.json" }
+
+  /api/cloud/workspace/settlements/{id}/confirm:
+    post:
+      tags: [Settlements]
+      operationId: confirmSettlement
+      summary: Transition a settlement to CONFIRMED. Equivalent to the generic state PATCH, exposed as a named action.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Settlement confirmed.
+          content:
+            application/json:
+              schema: { $ref: "schema/settlement.schema.json" }
+
+  # ---- Participants, Capabilities, Knowledge Capsules, Estimates, Planning Proposals, ----
+  # ---- Objectives, Constraints, Policies, Events: added by the backend's "Fill out the ----
+  # ---- protocol spec: docs 07-23 and APIs for every typed entity" change. ----
+
+  /api/cloud/workspace/participants:
+    get:
+      tags: [Participants]
+      operationId: listParticipants
+      summary: List every participant in the caller's organization, optionally filtered by capability.
+      parameters:
+        - name: capability
+          in: query
+          required: false
+          description: Capability code to filter by.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Participants.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/participant.schema.json" }
+    post:
+      tags: [Participants]
+      operationId: createParticipant
+      summary: Register a participant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParticipantCreateRequest" }
+      responses:
+        "200":
+          description: Participant created.
+          content:
+            application/json:
+              schema: { $ref: "schema/participant.schema.json" }
+
+  /api/cloud/workspace/participants/{id}:
+    get:
+      tags: [Participants]
+      operationId: getParticipant
+      summary: Get a single participant.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Participant.
+          content:
+            application/json:
+              schema: { $ref: "schema/participant.schema.json" }
+    delete:
+      tags: [Participants]
+      operationId: deleteParticipant
+      summary: Remove a participant.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Participant deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/participant.schema.json" }
+
+  /api/cloud/workspace/participants/{id}/capabilities:
+    post:
+      tags: [Participants]
+      operationId: attachParticipantCapability
+      summary: Attach a capability (by code) to a participant.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParticipantAttachCapabilityRequest" }
+      responses:
+        "200":
+          description: Participant updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/participant.schema.json" }
+
+  /api/cloud/workspace/capabilities:
+    get:
+      tags: [Capabilities]
+      operationId: listCapabilities
+      summary: List every capability defined in the caller's organization.
+      responses:
+        "200":
+          description: Capabilities.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/capability.schema.json" }
+    post:
+      tags: [Capabilities]
+      operationId: createCapability
+      summary: Define a new capability.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CapabilityCreateRequest" }
+      responses:
+        "200":
+          description: Capability created.
+          content:
+            application/json:
+              schema: { $ref: "schema/capability.schema.json" }
+
+  /api/cloud/workspace/capabilities/{id}:
+    get:
+      tags: [Capabilities]
+      operationId: getCapability
+      summary: Get a single capability.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Capability.
+          content:
+            application/json:
+              schema: { $ref: "schema/capability.schema.json" }
+    delete:
+      tags: [Capabilities]
+      operationId: deleteCapability
+      summary: Remove a capability.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Capability deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/capability.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/knowledge:
+    get:
+      tags: [Knowledge Capsules]
+      operationId: listKnowledgeCapsules
+      summary: List every knowledge capsule attached to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Knowledge capsules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/knowledge-capsule.schema.json" }
+    post:
+      tags: [Knowledge Capsules]
+      operationId: createKnowledgeCapsule
+      summary: Attach a knowledge capsule to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KnowledgeCapsuleCreateRequest" }
+      responses:
+        "200":
+          description: Knowledge capsule created.
+          content:
+            application/json:
+              schema: { $ref: "schema/knowledge-capsule.schema.json" }
+
+  /api/cloud/workspace/knowledge/{id}:
+    get:
+      tags: [Knowledge Capsules]
+      operationId: getKnowledgeCapsule
+      summary: Get a single knowledge capsule. No delete — immutable once created.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Knowledge capsule.
+          content:
+            application/json:
+              schema: { $ref: "schema/knowledge-capsule.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/estimates:
+    get:
+      tags: [Estimates]
+      operationId: listEstimates
+      summary: List every estimate belonging to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Estimates.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/estimate.schema.json" }
+    post:
+      tags: [Estimates]
+      operationId: createEstimate
+      summary: Create an estimate for a mission, optionally scoped to an activity or planning proposal.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EstimateCreateRequest" }
+      responses:
+        "200":
+          description: Estimate created.
+          content:
+            application/json:
+              schema: { $ref: "schema/estimate.schema.json" }
+
+  /api/cloud/workspace/estimates/{id}:
+    get:
+      tags: [Estimates]
+      operationId: getEstimate
+      summary: Get a single estimate.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Estimate.
+          content:
+            application/json:
+              schema: { $ref: "schema/estimate.schema.json" }
+    delete:
+      tags: [Estimates]
+      operationId: deleteEstimate
+      summary: Remove an estimate.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Estimate deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/estimate.schema.json" }
+
+  /api/cloud/workspace/estimates/{id}/accept:
+    post:
+      tags: [Estimates]
+      operationId: acceptEstimate
+      summary: Accept an estimate.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Estimate accepted.
+          content:
+            application/json:
+              schema: { $ref: "schema/estimate.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/planning-proposals:
+    get:
+      tags: [Planning Proposals]
+      operationId: listPlanningProposals
+      summary: List every planning proposal belonging to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Planning proposals.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/planning-proposal.schema.json" }
+    post:
+      tags: [Planning Proposals]
+      operationId: createPlanningProposal
+      summary: Propose a strategy and timeline for fulfilling a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanningProposalCreateRequest" }
+      responses:
+        "200":
+          description: Planning proposal created.
+          content:
+            application/json:
+              schema: { $ref: "schema/planning-proposal.schema.json" }
+
+  /api/cloud/workspace/planning-proposals/{id}:
+    get:
+      tags: [Planning Proposals]
+      operationId: getPlanningProposal
+      summary: Get a single planning proposal.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Planning proposal.
+          content:
+            application/json:
+              schema: { $ref: "schema/planning-proposal.schema.json" }
+    delete:
+      tags: [Planning Proposals]
+      operationId: deletePlanningProposal
+      summary: Remove a planning proposal.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Planning proposal deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/planning-proposal.schema.json" }
+
+  /api/cloud/workspace/planning-proposals/{id}/accept:
+    post:
+      tags: [Planning Proposals]
+      operationId: acceptPlanningProposal
+      summary: Accept a planning proposal.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Planning proposal accepted.
+          content:
+            application/json:
+              schema: { $ref: "schema/planning-proposal.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/objectives:
+    get:
+      tags: [Objectives]
+      operationId: listObjectives
+      summary: List every objective belonging to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Objectives.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/objective.schema.json" }
+    post:
+      tags: [Objectives]
+      operationId: createObjective
+      summary: Create an objective for a mission, in state PROPOSED.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ObjectiveCreateRequest" }
+      responses:
+        "200":
+          description: Objective created.
+          content:
+            application/json:
+              schema: { $ref: "schema/objective.schema.json" }
+
+  /api/cloud/workspace/objectives/{id}:
+    get:
+      tags: [Objectives]
+      operationId: getObjective
+      summary: Get a single objective.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Objective.
+          content:
+            application/json:
+              schema: { $ref: "schema/objective.schema.json" }
+    delete:
+      tags: [Objectives]
+      operationId: deleteObjective
+      summary: Delete an objective.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Objective deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/objective.schema.json" }
+
+  /api/cloud/workspace/objectives/{id}/state:
+    patch:
+      tags: [Objectives]
+      operationId: updateObjectiveState
+      summary: Transition an objective's lifecycle state.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ObjectiveStateUpdateRequest" }
+      responses:
+        "200":
+          description: Objective updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/objective.schema.json" }
+
+  /api/cloud/workspace/missions/{id}/constraints:
+    get:
+      tags: [Constraints]
+      operationId: listConstraints
+      summary: List every constraint belonging to a mission.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Constraints.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/constraint.schema.json" }
+    post:
+      tags: [Constraints]
+      operationId: createConstraint
+      summary: Create a constraint for a mission, in state ACTIVE.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConstraintCreateRequest" }
+      responses:
+        "200":
+          description: Constraint created.
+          content:
+            application/json:
+              schema: { $ref: "schema/constraint.schema.json" }
+
+  /api/cloud/workspace/constraints/{id}:
+    get:
+      tags: [Constraints]
+      operationId: getConstraint
+      summary: Get a single constraint.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Constraint.
+          content:
+            application/json:
+              schema: { $ref: "schema/constraint.schema.json" }
+    delete:
+      tags: [Constraints]
+      operationId: deleteConstraint
+      summary: Remove a constraint.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Constraint deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/constraint.schema.json" }
+
+  /api/cloud/workspace/constraints/{id}/state:
+    patch:
+      tags: [Constraints]
+      operationId: updateConstraintState
+      summary: Transition a constraint's lifecycle state.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConstraintStateUpdateRequest" }
+      responses:
+        "200":
+          description: Constraint updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/constraint.schema.json" }
+
+  /api/cloud/workspace/policies:
+    get:
+      tags: [Policies]
+      operationId: listPolicies
+      summary: List every policy in the caller's organization.
+      responses:
+        "200":
+          description: Policies.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/policy.schema.json" }
+    post:
+      tags: [Policies]
+      operationId: createPolicy
+      summary: Create a policy, in state DRAFT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PolicyCreateRequest" }
+      responses:
+        "200":
+          description: Policy created.
+          content:
+            application/json:
+              schema: { $ref: "schema/policy.schema.json" }
+
+  /api/cloud/workspace/policies/{id}:
+    get:
+      tags: [Policies]
+      operationId: getPolicy
+      summary: Get a single policy.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Policy.
+          content:
+            application/json:
+              schema: { $ref: "schema/policy.schema.json" }
+    delete:
+      tags: [Policies]
+      operationId: deletePolicy
+      summary: Delete a policy.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Policy deleted.
+          content:
+            application/json:
+              schema: { $ref: "schema/policy.schema.json" }
+
+  /api/cloud/workspace/policies/{id}/state:
+    patch:
+      tags: [Policies]
+      operationId: updatePolicyState
+      summary: Transition a policy's lifecycle state.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PolicyStateUpdateRequest" }
+      responses:
+        "200":
+          description: Policy updated.
+          content:
+            application/json:
+              schema: { $ref: "schema/policy.schema.json" }
+
+  /api/cloud/workspace/events:
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: List every event in the caller's organization, optionally filtered to a single mission.
+      parameters:
+        - name: missionId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Events.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "schema/event.schema.json" }
+
+  /api/cloud/workspace/events/{id}:
+    get:
+      tags: [Events]
+      operationId: getEvent
+      summary: Get a single event.
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: Event.
+          content:
+            application/json:
+              schema: { $ref: "schema/event.schema.json" }
 
   /api/cloud/workspace/missions/{missionId}/share:
     post:
@@ -617,6 +1544,14 @@ components:
       properties:
         state: { $ref: "schema/common.schema.json#/$defs/activityState" }
 
+    ActivityAssignRequest:
+      type: object
+      properties:
+        participantId:
+          type: string
+          format: uuid
+          description: Omit to assign the caller's own (auto-provisioned) participant.
+
     DeliverableCreateRequest:
       type: object
       required: [title, artifactType]
@@ -624,6 +1559,9 @@ components:
         title: { type: string, minLength: 1 }
         artifactType: { type: string, minLength: 1 }
         activityId: { type: string, format: uuid }
+        acceptanceCriteria:
+          type: array
+          items: { type: string }
 
     DeliverableStateUpdateRequest:
       type: object
@@ -651,6 +1589,13 @@ components:
       properties:
         outcome: { $ref: "schema/common.schema.json#/$defs/verificationOutcome" }
 
+    VerificationEvaluateRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { $ref: "schema/common.schema.json#/$defs/verificationOutcome" }
+        notes: { type: string }
+
     SettlementCreateRequest:
       type: object
       required: [type]
@@ -664,6 +1609,116 @@ components:
       required: [state]
       properties:
         state: { $ref: "schema/common.schema.json#/$defs/settlementState" }
+
+    ParticipantCreateRequest:
+      type: object
+      required: [displayName, kind]
+      properties:
+        displayName: { type: string, minLength: 1 }
+        kind: { $ref: "schema/common.schema.json#/$defs/participantKind" }
+        externalRef: { type: string }
+        trustScore: { type: number }
+
+    ParticipantAttachCapabilityRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, minLength: 1 }
+
+    CapabilityCreateRequest:
+      type: object
+      required: [code, display]
+      properties:
+        code: { type: string, minLength: 1 }
+        display: { type: string, minLength: 1 }
+        description: { type: string }
+
+    KnowledgeCapsuleCreateRequest:
+      type: object
+      required: [title, type, locator]
+      properties:
+        title: { type: string, minLength: 1 }
+        type: { $ref: "schema/common.schema.json#/$defs/knowledgeType" }
+        locator: { type: string, minLength: 1 }
+        version: { type: integer }
+
+    EstimateCreateRequest:
+      type: object
+      properties:
+        activityId: { type: string, format: uuid }
+        planningProposalId: { type: string, format: uuid }
+        durationMinutes: { type: integer }
+        effortHours: { type: number }
+        cost: { type: number }
+        currency: { type: string }
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        requiredCapabilityCodes:
+          type: array
+          items: { type: string }
+        risks:
+          type: array
+          items: { type: string }
+
+    PlanningProposalCreateRequest:
+      type: object
+      properties:
+        strategy: { type: string }
+        expectedTimeline: { type: string, format: date-time }
+
+    ArtifactCreateRequest:
+      type: object
+      required: [type, locator]
+      properties:
+        type: { type: string, minLength: 1 }
+        locator: { type: string, minLength: 1 }
+        checksum: { type: string }
+
+    ObjectiveCreateRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+        priority: { $ref: "schema/common.schema.json#/$defs/priority" }
+        targetMetric: { type: string }
+
+    ObjectiveStateUpdateRequest:
+      type: object
+      required: [state]
+      properties:
+        state: { $ref: "schema/common.schema.json#/$defs/objectiveState" }
+
+    ConstraintCreateRequest:
+      type: object
+      required: [type, description, severity]
+      properties:
+        type: { $ref: "schema/common.schema.json#/$defs/constraintType" }
+        description: { type: string, minLength: 1 }
+        severity: { $ref: "schema/common.schema.json#/$defs/constraintSeverity" }
+
+    ConstraintStateUpdateRequest:
+      type: object
+      required: [state]
+      properties:
+        state: { $ref: "schema/common.schema.json#/$defs/constraintState" }
+
+    PolicyCreateRequest:
+      type: object
+      required: [code, title, appliesTo, description]
+      properties:
+        code: { type: string, minLength: 1 }
+        title: { type: string, minLength: 1 }
+        appliesTo: { $ref: "schema/common.schema.json#/$defs/policyScope" }
+        description: { type: string, minLength: 1 }
+
+    PolicyStateUpdateRequest:
+      type: object
+      required: [state]
+      properties:
+        state: { $ref: "schema/common.schema.json#/$defs/policyState" }
 
     ShareResponse:
       type: object

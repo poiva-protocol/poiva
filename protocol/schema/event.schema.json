@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/event.schema.json",
+  "title": "Event",
+  "description": "An immutable, append-only record of a protocol state change. See docs/protocol/16-event-model.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": {
+      "anyOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }],
+      "description": "The mission this event is scoped to, if any. Org-scoped mutations (e.g. Participant, Capability, Policy) have no mission to attach to."
+    },
+    "subjectType": {
+      "type": "string",
+      "description": "The kind of resource this event is about (e.g. 'mission', 'activity', 'participant')."
+    },
+    "subjectId": { "$ref": "common.schema.json#/$defs/id" },
+    "type": {
+      "type": "string",
+      "description": "Free-form event type (e.g. 'mission.state_changed', 'participant.created')."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event-specific structured detail."
+    },
+    "occurredAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "subjectType", "subjectId", "type", "occurredAt"],
+  "additionalProperties": false
+}

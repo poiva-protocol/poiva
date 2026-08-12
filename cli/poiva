@@ -157,23 +157,82 @@ var COMMAND_HELP = {
     ]
   },
   participant: {
-    description: 'Manage participants (people or entities fulfilling work). STILL LOCAL-WORKSPACE-' +
-      'ONLY: the server has no participant create/list/get endpoint (Participant has no written ' +
-      'protocol spec chapter yet, so the backend deliberately left it unmodeled — see cli/README.md). ' +
-      'Real participants are auto-created per organization member on their first authenticated ' +
-      'request; the one thing that IS server-backed is assigning an existing one to an activity.',
+    description: "Manage participants (people, orgs, AI agents, robots, or external systems " +
+      "fulfilling work) — org-scoped, server-backed. Real participants are also auto-created per " +
+      "organization member on their first authenticated request; 'attach' adds a capability code, " +
+      "and 'poiva activity assign' assigns one to an activity.",
     verbs: {
-      create: 'Create a participant (local workspace only).',
-      list: 'List participants (local workspace only).',
-      get: 'Get participant details (local workspace only).',
-      update: 'Update participant info (local workspace only).',
-      delete: 'Remove a participant (local workspace only).',
-      assign: 'Assign to activities or missions (local workspace only — see "poiva activity assign" for the real server-backed assignment).'
+      create: 'Register a participant: poiva participant create --displayName ... --kind HUMAN|ORGANIZATION|AI_AGENT|ROBOT|EXTERNAL_SYSTEM',
+      list: 'List participants (optionally --capability CODE to filter).',
+      get: 'Get single participant details.',
+      delete: 'Remove a participant.',
+      attach: 'Attach a capability: poiva participant attach <id> --code JAVA'
     },
     examples: [
-      'poiva participant create',
-      'poiva participant list --role resource',
-      'poiva activity assign activity-1 --participantId <uuid>   # the real, server-backed assignment'
+      'poiva participant create --displayName "Vlad" --kind HUMAN',
+      'poiva participant list --capability JAVA',
+      'poiva participant attach participant-1 --code JAVA',
+      'poiva activity assign activity-1 --participantId participant-1'
+    ]
+  },
+  capability: {
+    description: 'Manage capabilities (skills and expertise) — org-scoped, server-backed.',
+    verbs: {
+      create: 'Define a new capability: poiva capability create --code JAVA --display "Java Development"',
+      list: 'List available capabilities.',
+      get: 'Get single capability details.',
+      delete: 'Remove a capability.',
+      search: 'Local-only keyword search (no server search endpoint).'
+    },
+    examples: [
+      'poiva capability create --code JAVA --display "Java Development"',
+      'poiva capability list',
+      'poiva capability get capability-1'
+    ]
+  },
+  knowledge: {
+    description: "Manage knowledge capsules (documentation, references) attached to a mission. " +
+      "Immutable once created — no update or delete. add/list take the missionId as a positional argument.",
+    verbs: {
+      add: 'Attach a knowledge capsule: poiva knowledge add <missionId> --title ... --type ... --locator ...',
+      upload: 'Alias for add.',
+      list: 'List knowledge capsules for a mission.',
+      get: 'Get single knowledge capsule details.'
+    },
+    examples: [
+      'poiva knowledge add mission-123 --title "Architecture" --type ARCHITECTURE_DIAGRAM --locator https://docs.example.com/arch.png',
+      'poiva knowledge list mission-123',
+      'poiva knowledge get knowledge-1'
+    ]
+  },
+  estimate: {
+    description: 'Manage effort/cost estimates for a mission. create/list take the missionId as a positional argument.',
+    verbs: {
+      create: 'Create an estimate: poiva estimate create <missionId> --activityId ... --cost ... --currency ... --durationMinutes ...',
+      list: 'List estimates for a mission.',
+      get: 'Get single estimate details.',
+      delete: 'Remove an estimate.',
+      accept: 'Accept the estimate.'
+    },
+    examples: [
+      'poiva estimate create mission-123 --activityId activity-1 --cost 1200 --currency USD --durationMinutes 480 --requiredCapabilityCodes "JAVA,SQL"',
+      'poiva estimate list mission-123',
+      'poiva estimate accept estimate-1'
+    ]
+  },
+  proposal: {
+    description: 'Manage planning proposals for a mission. create/list take the missionId as a positional argument.',
+    verbs: {
+      create: 'Create a planning proposal: poiva proposal create <missionId> --strategy ...',
+      list: 'List planning proposals for a mission.',
+      get: 'Get single planning proposal details.',
+      delete: 'Remove a planning proposal.',
+      accept: 'Accept the proposal.'
+    },
+    examples: [
+      'poiva proposal create mission-123 --strategy "Phased rollout across three sprints"',
+      'poiva proposal list mission-123',
+      'poiva proposal accept proposal-1'
     ]
   },
   deliverable: {
@@ -197,75 +256,62 @@ var COMMAND_HELP = {
       'poiva deliverable reject deliverable-1'
     ]
   },
-  capability: {
-    description: 'Manage capabilities (skills and expertise).',
-    verbs: {
-      list: 'List available capabilities.',
-      search: 'Search for capabilities by keyword.',
-      create: 'Define a new capability.',
-      update: 'Update capability definition.',
-      delete: 'Remove a capability.'
-    },
-    examples: [
-      'poiva capability list',
-      'poiva capability search Java',
-      'poiva capability create --code JAVA --display "Java Development"'
-    ]
-  },
-  knowledge: {
-    description: 'Manage knowledge assets (documentation, references).',
-    verbs: {
-      add: 'Add a knowledge asset.',
-      upload: 'Upload a document or file.',
-      list: 'List knowledge assets.',
-      remove: 'Remove a knowledge asset.'
-    },
-    examples: [
-      'poiva knowledge list',
-      'poiva knowledge upload architecture.pdf',
-      'poiva knowledge add --title "API Reference" --locator https://docs.example.com'
-    ]
-  },
   objective: {
-    description: 'Manage objectives (goals for missions).',
+    description: 'Manage objectives (goals for missions). create/list take the missionId as a positional argument.',
     verbs: {
-      create: 'Create an objective.',
-      list: 'List objectives.',
-      get: 'Get objective details.',
-      update: 'Update an objective.',
+      create: 'Create an objective: poiva objective create <missionId> --title "Complete Phase 1"',
+      list: 'List objectives for a mission.',
+      get: 'Get single objective details.',
+      update: 'Transition state: poiva objective update <id> --state PROPOSED|ACTIVE|ACHIEVED|ABANDONED',
       delete: 'Delete an objective.'
     },
     examples: [
-      'poiva objective create --missionId mission-123 --title "Complete Phase 1"',
-      'poiva objective list --missionId mission-123'
+      'poiva objective create mission-123 --title "Complete Phase 1" --priority HIGH',
+      'poiva objective list mission-123',
+      'poiva objective update objective-1 --state ACHIEVED'
     ]
   },
   constraint: {
-    description: 'Manage constraints (limitations and rules).',
+    description: 'Manage constraints (limitations and rules). create/list take the missionId as a positional argument.',
     verbs: {
-      create: 'Create a constraint.',
-      list: 'List constraints.',
-      get: 'Get constraint details.',
-      update: 'Update a constraint.',
-      remove: 'Remove a constraint.'
+      create: 'Create a constraint: poiva constraint create <missionId> --type BUDGET --description ... --severity MUST|SHOULD',
+      list: 'List constraints for a mission.',
+      get: 'Get single constraint details.',
+      update: 'Transition state: poiva constraint update <id> --state ACTIVE|SATISFIED|WAIVED|VIOLATED',
+      delete: 'Remove a constraint.'
     },
     examples: [
-      'poiva constraint create --missionId mission-123 --title "Budget Limit"',
-      'poiva constraint list --missionId mission-123'
+      'poiva constraint create mission-123 --type BUDGET --description "Budget Limit: $50k" --severity MUST',
+      'poiva constraint list mission-123',
+      'poiva constraint update constraint-1 --state SATISFIED'
     ]
   },
   policy: {
-    description: 'Manage policies (rules and governance).',
+    description: 'Manage policies (rules and governance) — org-scoped, not tied to a mission.',
     verbs: {
-      create: 'Create a policy.',
+      create: 'Create a policy: poiva policy create --code REVIEW_REQUIRED --title "Review Required" --appliesTo VERIFICATION --description ...',
       list: 'List policies.',
-      get: 'Get policy details.',
-      update: 'Update a policy.',
+      get: 'Get single policy details.',
+      update: 'Transition state: poiva policy update <id> --state DRAFT|ACTIVE|DEPRECATED',
       delete: 'Delete a policy.'
     },
     examples: [
-      'poiva policy create --title "Review Required" --missionId mission-123',
-      'poiva policy list'
+      'poiva policy create --code REVIEW_REQUIRED --title "Review Required" --appliesTo VERIFICATION --description "..."',
+      'poiva policy list',
+      'poiva policy update policy-1 --state ACTIVE'
+    ]
+  },
+  artifact: {
+    description: "Manage artifacts (files/outputs attached to a deliverable). Immutable once " +
+      "created — no update or delete. create/list take the deliverableId as a positional argument.",
+    verbs: {
+      create: 'Attach an artifact: poiva artifact create <deliverableId> --type ... --locator ... [--checksum ...]',
+      list: 'List artifacts for a deliverable.',
+      get: 'Get single artifact details.'
+    },
+    examples: [
+      'poiva artifact create deliverable-1 --type file --locator https://example.com/report.pdf --checksum sha256:...',
+      'poiva artifact list deliverable-1'
     ]
   },
   evidence: {
@@ -320,16 +366,19 @@ var COMMAND_HELP = {
     ]
   },
   event: {
-    description: 'Monitor protocol events in real-time.',
+    description: 'Read the protocol event log (server-backed, org-scoped). Events are emitted as ' +
+      'a side effect of other mutations — read-only, no create/update/delete. Optionally filter ' +
+      'by --missionId. watch/tail re-poll the same list endpoint; there is no server push.',
     verbs: {
-      list: 'List events.',
-      watch: 'Watch events in real-time.',
-      tail: 'Tail latest events.'
+      list: 'List events (optionally --missionId <id>).',
+      get: 'Get single event details.',
+      watch: 'Re-fetch and print the event list once (no live push).',
+      tail: 'Alias for watch.'
     },
     examples: [
+      'poiva event list',
       'poiva event list --missionId mission-123',
-      'poiva event watch',
-      'poiva event tail --lines 20'
+      'poiva event get event-1'
     ]
   },
   search: {
@@ -451,10 +500,10 @@ var RESOURCE_DEFS = {
   participant: {
     file: 'participants.json',
     titleField: 'displayName',
-    statusField: 'role',
-    defaultStatus: 'member',
-    promptFields: ['displayName', 'kind', 'role', 'availability'],
-    columns: ['id', 'role', 'displayName', 'kind']
+    statusField: 'kind',
+    defaultStatus: 'HUMAN',
+    promptFields: ['displayName', 'kind', 'externalRef', 'trustScore'],
+    columns: ['id', 'kind', 'displayName', 'externalRef']
   },
   capability: {
     file: 'capabilities.json',
@@ -472,29 +521,53 @@ var RESOURCE_DEFS = {
     promptFields: ['title', 'type', 'locator', 'missionId'],
     columns: ['id', 'type', 'title', 'locator']
   },
+  estimate: {
+    file: 'estimates.json',
+    titleField: 'currency',
+    statusField: 'status',
+    defaultStatus: 'pending',
+    promptFields: ['activityId', 'durationMinutes', 'cost', 'currency', 'missionId'],
+    columns: ['id', 'status', 'cost', 'currency', 'activityId']
+  },
+  proposal: {
+    file: 'proposals.json',
+    titleField: 'strategy',
+    statusField: 'status',
+    defaultStatus: 'pending',
+    promptFields: ['strategy', 'expectedTimeline', 'missionId'],
+    columns: ['id', 'status', 'strategy', 'missionId']
+  },
+  artifact: {
+    file: 'artifacts.json',
+    titleField: 'type',
+    statusField: 'status',
+    defaultStatus: 'draft',
+    promptFields: ['type', 'locator', 'checksum', 'deliverableId'],
+    columns: ['id', 'type', 'locator', 'deliverableId']
+  },
   objective: {
     file: 'objectives.json',
     titleField: 'title',
     statusField: 'status',
-    defaultStatus: 'draft',
-    promptFields: ['title', 'summary', 'missionId'],
+    defaultStatus: 'PROPOSED',
+    promptFields: ['title', 'description', 'priority', 'targetMetric', 'missionId'],
     columns: ['id', 'status', 'title', 'missionId']
   },
   constraint: {
     file: 'constraints.json',
-    titleField: 'title',
+    titleField: 'description',
     statusField: 'status',
-    defaultStatus: 'active',
-    promptFields: ['title', 'summary', 'missionId'],
-    columns: ['id', 'status', 'title', 'missionId']
+    defaultStatus: 'ACTIVE',
+    promptFields: ['type', 'description', 'severity', 'missionId'],
+    columns: ['id', 'status', 'type', 'severity']
   },
   policy: {
     file: 'policies.json',
     titleField: 'title',
     statusField: 'status',
-    defaultStatus: 'draft',
-    promptFields: ['title', 'summary', 'missionId'],
-    columns: ['id', 'status', 'title', 'missionId']
+    defaultStatus: 'DRAFT',
+    promptFields: ['code', 'title', 'appliesTo', 'description'],
+    columns: ['id', 'status', 'code', 'title']
   },
   deliverable: {
     file: 'deliverables.json',
@@ -538,21 +611,23 @@ var RESOURCE_DEFS = {
   }
 };
 
-// Remote (session-backed) support only covers the typed protocol model exposed at
-// /api/cloud/workspace/**: mission, activity, deliverable, evidence, verification, settlement.
-// participant/capability/knowledge/objective/constraint/policy/event have NO server-side typed
-// model or endpoint yet (confirmed against the backend as of the "Close protocol/workspace API
-// gaps" change: Participant, Capability, Knowledge Capsule, Estimate, and Planning Proposal are
-// explicitly flagged as future work, not implemented), so they remain local-workspace-only (see
-// RESOURCE_DEFS/loadResourceStore above). The one participant-adjacent capability that IS real:
-// activity assign now takes an existing participantId (defaults to self-assignment when omitted).
+// Remote (session-backed) support now covers every RESOURCE_DEFS key: the original six
+// (mission, activity, deliverable, evidence, verification, settlement) plus the nine added by
+// "Fill out the protocol spec: docs 07-23 and APIs for every typed entity" (participant,
+// capability, knowledge, estimate, proposal, artifact, objective, constraint, policy), plus a
+// standalone, read-only Event log. RESOURCE_DEFS/loadResourceStore above remain a local-workspace
+// fallback for when no session is active (`poiva init` without `poiva auth login`).
 //
-// Each of the six typed resources now has a single-item GET; Mission/Activity/Deliverable/
-// Settlement additionally have DELETE (soft-delete — the record is hidden from list, not erased)
-// and a GET .../events log for Mission/Activity. Evidence and Verification stay immutable per
-// spec (docs/protocol/05-mission.md §20, 06-activity.md §14): no delete for either. Beyond the
-// generic state/outcome PATCH, some resources also expose explicit lifecycle actions (`actions`
-// below) that the server validates through the same transition graph as the generic PATCH.
+// Every resource has a single-item GET. Mission/Activity/Deliverable/Settlement/Participant/
+// Capability/Estimate/PlanningProposal/Objective/Constraint/Policy have DELETE (soft-delete for
+// the original six — hidden from list, not erased; hard delete for the rest). Evidence, Artifact,
+// and Knowledge Capsule stay immutable per spec: no update or delete, and Event is never created
+// directly (it's a side effect of other mutations) — list/get only for all three.
+// Mission/Activity additionally have a GET .../events log. Beyond the generic state/outcome PATCH,
+// some resources also expose explicit lifecycle actions (`actions` below, e.g. mission cancel,
+// activity assign/submit/approve, verification evaluate, settlement confirm, participant attach
+// (a capability), estimate/proposal accept) that the server validates through the same transition
+// graph as the generic PATCH.
 var REMOTE_RESOURCE_DEFS = {
   mission: {
     parentParam: null,
@@ -641,6 +716,7 @@ var REMOTE_RESOURCE_DEFS = {
     listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/settlements'; },
     createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/settlements'; },
     createFields: ['type', 'amount', 'currency'],
+    numberFields: ['amount'],
     getPath: function (id) { return '/api/cloud/workspace/settlements/' + id; },
     deletePath: function (id) { return '/api/cloud/workspace/settlements/' + id; },
     statePath: function (id) { return '/api/cloud/workspace/settlements/' + id + '/state'; },
@@ -651,6 +727,132 @@ var REMOTE_RESOURCE_DEFS = {
     },
     columns: ['id', 'state', 'type', 'amount'],
     toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.type, type: r.type, amount: r.amount || '', currency: r.currency || '', missionId: r.missionId }; }
+  },
+
+  // ---- Added by "Fill out the protocol spec: docs 07-23 and APIs for every typed entity" ----
+  // Participant/Capability/Policy are organization-scoped (parentParam: null). Knowledge/Estimate/
+  // Planning Proposal/Objective/Constraint are mission-scoped. Artifact is deliverable-scoped.
+  // Event is a standalone, read-only log (list/get only — events are emitted as a side effect of
+  // other mutations, never created directly).
+  participant: {
+    parentParam: null,
+    listPath: function () { return '/api/cloud/workspace/participants'; },
+    createPath: function () { return '/api/cloud/workspace/participants'; },
+    createFields: ['displayName', 'kind', 'externalRef', 'trustScore'],
+    numberFields: ['trustScore'],
+    queryParams: ['capability'],
+    getPath: function (id) { return '/api/cloud/workspace/participants/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/participants/' + id; },
+    actions: {
+      attach: { method: 'POST', path: function (id) { return '/api/cloud/workspace/participants/' + id + '/capabilities'; }, bodyFields: ['code'], requiredFields: ['code'] }
+    },
+    columns: ['id', 'kind', 'displayName', 'capabilities'],
+    toRow: function (r) { return { id: r.id, kind: r.kind, status: r.kind, title: r.displayName, displayName: r.displayName, capabilities: (r.capabilities || []).join(',') }; }
+  },
+  capability: {
+    parentParam: null,
+    listPath: function () { return '/api/cloud/workspace/capabilities'; },
+    createPath: function () { return '/api/cloud/workspace/capabilities'; },
+    createFields: ['code', 'display', 'description'],
+    getPath: function (id) { return '/api/cloud/workspace/capabilities/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/capabilities/' + id; },
+    columns: ['id', 'code', 'display'],
+    toRow: function (r) { return { id: r.id, code: r.code, status: r.code, title: r.display, display: r.display, description: r.description || '' }; }
+  },
+  knowledge: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/knowledge'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/knowledge'; },
+    createFields: ['title', 'type', 'locator', 'version'],
+    numberFields: ['version'],
+    getPath: function (id) { return '/api/cloud/workspace/knowledge/' + id; },
+    columns: ['id', 'type', 'title', 'locator'],
+    toRow: function (r) { return { id: r.id, type: r.type, status: r.type, title: r.title, locator: r.locator, missionId: r.missionId }; }
+  },
+  estimate: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/estimates'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/estimates'; },
+    createFields: ['activityId', 'planningProposalId', 'durationMinutes', 'effortHours', 'cost', 'currency', 'confidence', 'requiredCapabilityCodes', 'risks'],
+    numberFields: ['durationMinutes', 'effortHours', 'cost', 'confidence'],
+    arrayFields: ['requiredCapabilityCodes', 'risks'],
+    getPath: function (id) { return '/api/cloud/workspace/estimates/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/estimates/' + id; },
+    actions: {
+      accept: { method: 'POST', path: function (id) { return '/api/cloud/workspace/estimates/' + id + '/accept'; } }
+    },
+    columns: ['id', 'accepted', 'cost', 'currency', 'activityId'],
+    toRow: function (r) { return { id: r.id, accepted: r.accepted, status: r.accepted ? 'ACCEPTED' : 'PENDING', title: 'Estimate', cost: r.cost != null ? r.cost : '', currency: r.currency || '', activityId: r.activityId || '', missionId: r.missionId }; }
+  },
+  proposal: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/planning-proposals'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/planning-proposals'; },
+    createFields: ['strategy', 'expectedTimeline'],
+    getPath: function (id) { return '/api/cloud/workspace/planning-proposals/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/planning-proposals/' + id; },
+    actions: {
+      accept: { method: 'POST', path: function (id) { return '/api/cloud/workspace/planning-proposals/' + id + '/accept'; } }
+    },
+    columns: ['id', 'accepted', 'strategy', 'expectedTimeline'],
+    toRow: function (r) { return { id: r.id, accepted: r.accepted, status: r.accepted ? 'ACCEPTED' : 'PENDING', title: r.strategy || 'Planning proposal', strategy: r.strategy || '', expectedTimeline: r.expectedTimeline || '', missionId: r.missionId }; }
+  },
+  artifact: {
+    parentParam: 'deliverableId',
+    listPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/artifacts'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/deliverables/' + parentId + '/artifacts'; },
+    createFields: ['type', 'locator', 'checksum'],
+    getPath: function (id) { return '/api/cloud/workspace/artifacts/' + id; },
+    columns: ['id', 'type', 'locator', 'deliverableId'],
+    toRow: function (r) { return { id: r.id, type: r.type, status: r.type, title: r.type + ' artifact', locator: r.locator, deliverableId: r.deliverableId }; }
+  },
+  objective: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/objectives'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/objectives'; },
+    createFields: ['title', 'description', 'priority', 'targetMetric'],
+    getPath: function (id) { return '/api/cloud/workspace/objectives/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/objectives/' + id; },
+    statePath: function (id) { return '/api/cloud/workspace/objectives/' + id + '/state'; },
+    stateField: 'state',
+    stateValues: ['PROPOSED', 'ACTIVE', 'ACHIEVED', 'ABANDONED'],
+    columns: ['id', 'state', 'title', 'missionId'],
+    toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.title, missionId: r.missionId }; }
+  },
+  constraint: {
+    parentParam: 'missionId',
+    listPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/constraints'; },
+    createPath: function (parentId) { return '/api/cloud/workspace/missions/' + parentId + '/constraints'; },
+    createFields: ['type', 'description', 'severity'],
+    getPath: function (id) { return '/api/cloud/workspace/constraints/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/constraints/' + id; },
+    statePath: function (id) { return '/api/cloud/workspace/constraints/' + id + '/state'; },
+    stateField: 'state',
+    stateValues: ['ACTIVE', 'SATISFIED', 'WAIVED', 'VIOLATED'],
+    columns: ['id', 'state', 'type', 'severity'],
+    toRow: function (r) { return { id: r.id, state: r.state, status: r.state, title: r.description, type: r.type, severity: r.severity, missionId: r.missionId }; }
+  },
+  policy: {
+    parentParam: null,
+    listPath: function () { return '/api/cloud/workspace/policies'; },
+    createPath: function () { return '/api/cloud/workspace/policies'; },
+    createFields: ['code', 'title', 'appliesTo', 'description'],
+    getPath: function (id) { return '/api/cloud/workspace/policies/' + id; },
+    deletePath: function (id) { return '/api/cloud/workspace/policies/' + id; },
+    statePath: function (id) { return '/api/cloud/workspace/policies/' + id + '/state'; },
+    stateField: 'state',
+    stateValues: ['DRAFT', 'ACTIVE', 'DEPRECATED'],
+    columns: ['id', 'state', 'code', 'title'],
+    toRow: function (r) { return { id: r.id, state: r.state, status: r.state, code: r.code, title: r.title, appliesTo: r.appliesTo }; }
+  },
+  event: {
+    parentParam: null,
+    listPath: function () { return '/api/cloud/workspace/events'; },
+    queryParams: ['missionId'],
+    getPath: function (id) { return '/api/cloud/workspace/events/' + id; },
+    readOnlyReason: 'events are emitted as a side effect of other mutations, never created directly',
+    columns: ['id', 'type', 'subjectType', 'subjectId', 'occurredAt'],
+    toRow: function (r) { return { id: r.id, type: r.type, status: r.type, title: r.type, subjectType: r.subjectType, subjectId: r.subjectId, occurredAt: r.occurredAt, missionId: r.missionId }; }
   }
 };
 
@@ -1457,15 +1659,17 @@ function handleResource(resource, argv) {
 function verbsFor(resource) {
   if (resource === 'mission') return ['create', 'get', 'list', 'update', 'delete', 'archive', 'cancel', 'export', 'import', 'watch', 'timeline', 'graph', 'share', 'events'];
   if (resource === 'activity') return ['create', 'list', 'get', 'update', 'delete', 'assign', 'submit', 'approve', 'start', 'complete', 'verify', 'events', 'watch'];
-  if (resource === 'participant') return ['create', 'list', 'get', 'update', 'delete', 'assign'];
-  if (resource === 'capability') return ['list', 'search', 'create', 'update'];
-  if (resource === 'knowledge') return ['add', 'upload', 'list', 'remove'];
-  if (resource === 'objective' || resource === 'constraint' || resource === 'policy') return ['create', 'list', 'delete', 'update'];
+  if (resource === 'participant') return ['create', 'list', 'get', 'delete', 'attach'];
+  if (resource === 'capability') return ['create', 'list', 'get', 'delete', 'search'];
+  if (resource === 'knowledge') return ['add', 'upload', 'list', 'get'];
+  if (resource === 'estimate' || resource === 'proposal') return ['create', 'list', 'get', 'delete', 'accept'];
+  if (resource === 'artifact') return ['create', 'list', 'get'];
+  if (resource === 'objective' || resource === 'constraint' || resource === 'policy') return ['create', 'list', 'get', 'update', 'delete'];
   if (resource === 'deliverable') return ['submit', 'list', 'get', 'delete', 'download', 'approve', 'reject'];
   if (resource === 'evidence') return ['upload', 'list', 'get', 'verify'];
   if (resource === 'verification') return ['run', 'get', 'evaluate', 'approve', 'reject', 'history'];
   if (resource === 'settlement') return ['create', 'list', 'get', 'delete', 'confirm', 'export'];
-  if (resource === 'event') return ['list', 'watch', 'tail'];
+  if (resource === 'event') return ['list', 'get', 'watch', 'tail'];
   return ['create', 'get', 'list', 'update', 'delete'];
 }
 
@@ -2110,6 +2314,11 @@ function remoteResourceOperation(session, resource, def, verb, argv) {
   }
 
   if (verb === 'create' || verb === 'add' || verb === 'upload' || verb === 'submit' || verb === 'run') {
+    if (!def.createPath) {
+      error(resource + ' has no create endpoint through the remote API' + (def.readOnlyReason ? ' — ' + def.readOnlyReason : '') + '.');
+      process.exitCode = 1;
+      return Promise.resolve();
+    }
     return remoteCreate(session, resource, def, argv);
   }
 
@@ -2185,10 +2394,14 @@ function remoteCreate(session, resource, def, argv) {
 
   return gather.then(function (payload) {
     mergeFlagFields(payload, args);
-    if (payload.amount !== undefined && payload.amount !== '') payload.amount = Number(payload.amount);
-    if (resource === 'deliverable' && typeof payload.acceptanceCriteria === 'string') {
-      payload.acceptanceCriteria = payload.acceptanceCriteria.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    }
+    (def.numberFields || []).forEach(function (field) {
+      if (payload[field] !== undefined && payload[field] !== '') payload[field] = Number(payload[field]);
+    });
+    (def.arrayFields || []).forEach(function (field) {
+      if (typeof payload[field] === 'string') {
+        payload[field] = payload[field].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      }
+    });
     return requestCloud(session, 'POST', def.createPath(split.parentId), payload);
   }).then(function (created) {
     console.log(stringifyRecord(def.toRow(created)));
@@ -2291,7 +2504,15 @@ function remoteList(session, resource, def, argv, verb) {
     return Promise.resolve();
   }
   var args = parseArgs(split.rest);
-  return requestCloud(session, 'GET', def.listPath(split.parentId)).then(function (items) {
+  var listPath = def.listPath(split.parentId);
+  if (def.queryParams && def.queryParams.length) {
+    var qs = [];
+    def.queryParams.forEach(function (key) {
+      if (args[key] !== undefined && args[key] !== '') qs.push(encodeURIComponent(key) + '=' + encodeURIComponent(args[key]));
+    });
+    if (qs.length) listPath += (listPath.indexOf('?') === -1 ? '?' : '&') + qs.join('&');
+  }
+  return requestCloud(session, 'GET', listPath).then(function (items) {
     var rows = (items || []).map(def.toRow);
     if (args.status) {
       var wanted = String(args.status).toUpperCase();

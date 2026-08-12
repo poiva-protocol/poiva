@@ -82,6 +82,52 @@
       "type": "string",
       "description": "The nature of a participant fulfilling or sponsoring work.",
       "enum": ["HUMAN", "ORGANIZATION", "AI_AGENT", "ROBOT", "EXTERNAL_SYSTEM"]
+    },
+    "knowledgeType": {
+      "type": "string",
+      "description": "The medium/format of a Knowledge Capsule. See docs/protocol/09-knowledge-capsules.md.",
+      "enum": [
+        "DOCUMENT",
+        "IMAGE",
+        "VIDEO",
+        "REPOSITORY",
+        "URL",
+        "SPECIFICATION",
+        "ARCHITECTURE_DIAGRAM",
+        "REGULATION",
+        "CONTRACT",
+        "OTHER"
+      ]
+    },
+    "objectiveState": {
+      "type": "string",
+      "description": "Objective lifecycle state. See docs/protocol/21-objectives.md.",
+      "enum": ["PROPOSED", "ACTIVE", "ACHIEVED", "ABANDONED"]
+    },
+    "constraintType": {
+      "type": "string",
+      "description": "Category of a Constraint. See docs/protocol/22-constraints.md.",
+      "enum": ["BUDGET", "TIME", "REGULATORY", "TECHNICAL", "RESOURCE", "ORGANIZATIONAL", "OTHER"]
+    },
+    "constraintSeverity": {
+      "type": "string",
+      "description": "RFC 2119-style severity: MUST is a hard constraint, SHOULD is a soft one.",
+      "enum": ["MUST", "SHOULD"]
+    },
+    "constraintState": {
+      "type": "string",
+      "description": "Constraint lifecycle state. See docs/protocol/22-constraints.md.",
+      "enum": ["ACTIVE", "SATISFIED", "WAIVED", "VIOLATED"]
+    },
+    "policyScope": {
+      "type": "string",
+      "description": "The area of the protocol lifecycle a Policy governs. See docs/protocol/23-policies.md.",
+      "enum": ["VERIFICATION", "PLANNING", "SETTLEMENT", "GENERAL"]
+    },
+    "policyState": {
+      "type": "string",
+      "description": "Policy lifecycle state. See docs/protocol/23-policies.md.",
+      "enum": ["DRAFT", "ACTIVE", "DEPRECATED"]
     }
   }
 }

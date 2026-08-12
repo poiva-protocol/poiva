@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/policy.schema.json",
+  "title": "Policy",
+  "description": "An organization-scoped rule governing verification, planning, or settlement. See docs/protocol/23-policies.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "code": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable, org-unique identifier for this policy (e.g. 'REVIEW_REQUIRED')."
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "appliesTo": { "$ref": "common.schema.json#/$defs/policyScope" },
+    "description": { "type": "string", "minLength": 1 },
+    "state": { "$ref": "common.schema.json#/$defs/policyState" },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "code", "title", "appliesTo", "description", "state", "createdAt"],
+  "additionalProperties": false
+}

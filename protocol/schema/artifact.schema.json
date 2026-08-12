@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/artifact.schema.json",
+  "title": "Artifact",
+  "description": "A concrete file or output attached to a deliverable (e.g. a document, build output, or dataset). Immutable once created. See docs/protocol/12-deliverables.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "deliverableId": { "$ref": "common.schema.json#/$defs/id" },
+    "type": {
+      "type": "string",
+      "description": "Free-form artifact type (e.g. 'file', 'image', 'dataset')."
+    },
+    "locator": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where the artifact lives — a URL or other addressable reference."
+    },
+    "checksum": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }],
+      "description": "Optional integrity hash for the artifact contents (e.g. 'sha256:...')."
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "deliverableId", "type", "locator", "createdAt"],
+  "additionalProperties": false
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/participant.schema.json",
+  "title": "Participant",
+  "description": "Any entity capable of contributing to a Mission: human, organization, AI agent, robot, or external system. See docs/protocol/07-participants.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "kind": { "$ref": "common.schema.json#/$defs/participantKind" },
+    "externalRef": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }],
+      "description": "Implementation-specific identity this participant points at (e.g. a user or organization id). Identity is external to the protocol — see docs/protocol/02-design-principles.md section 18."
+    },
+    "trustScore": {
+      "anyOf": [{ "type": "number" }, { "type": "null" }],
+      "description": "Implementation-defined confidence metric; the protocol does not define scoring."
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability codes this participant has been attached to."
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "displayName", "kind", "capabilities", "createdAt"],
+  "additionalProperties": false
+}

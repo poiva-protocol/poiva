@@ -311,6 +311,9 @@ Readers are encouraged to follow the documents in order.
 18. Extension Model
 19. Security Considerations
 20. Versioning & Compatibility
+21. Objectives
+22. Constraints
+23. Policies
 
 Together these documents define what it means to be **Poiva-compatible**.
 

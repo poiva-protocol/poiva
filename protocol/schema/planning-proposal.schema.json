@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/planning-proposal.schema.json",
+  "title": "Planning Proposal",
+  "description": "A proposed strategy and timeline for fulfilling a mission, accepted or superseded during Planning. See docs/protocol/10-planning-and-estimation.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "strategy": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "expectedTimeline": {
+      "anyOf": [{ "$ref": "common.schema.json#/$defs/timestamp" }, { "type": "null" }]
+    },
+    "accepted": { "type": "boolean" },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "accepted", "createdAt"],
+  "additionalProperties": false
+}

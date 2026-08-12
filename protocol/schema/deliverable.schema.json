@@ -17,6 +17,11 @@
       "description": "Free-form type of the underlying artifact (e.g. 'document', 'pull-request', 'inspection-report')."
     },
     "state": { "$ref": "common.schema.json#/$defs/deliverableState" },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Human-readable criteria the deliverable must satisfy to be accepted."
+    },
     "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
   },
   "required": ["id", "missionId", "title", "artifactType", "state", "createdAt"],

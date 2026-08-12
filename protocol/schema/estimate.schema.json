@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/estimate.schema.json",
+  "title": "Estimate",
+  "description": "A proposed effort, cost, and confidence for fulfilling a mission or one of its activities. See docs/protocol/10-planning-and-estimation.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "activityId": {
+      "anyOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }]
+    },
+    "planningProposalId": {
+      "anyOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }]
+    },
+    "durationMinutes": {
+      "anyOf": [{ "type": "integer" }, { "type": "null" }]
+    },
+    "effortHours": {
+      "anyOf": [{ "type": "number" }, { "type": "null" }]
+    },
+    "cost": {
+      "anyOf": [{ "type": "number" }, { "type": "null" }]
+    },
+    "currency": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "confidence": {
+      "anyOf": [{ "type": "integer", "minimum": 0, "maximum": 100 }, { "type": "null" }],
+      "description": "Implementation-defined confidence percentage; the protocol does not define scoring."
+    },
+    "accepted": { "type": "boolean" },
+    "requiredCapabilityCodes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "accepted", "requiredCapabilityCodes", "risks", "createdAt"],
+  "additionalProperties": false
+}

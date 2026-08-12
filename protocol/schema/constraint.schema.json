@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/constraint.schema.json",
+  "title": "Constraint",
+  "description": "A limitation or rule a mission must operate within. See docs/protocol/22-constraints.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "missionId": { "$ref": "common.schema.json#/$defs/id" },
+    "type": { "$ref": "common.schema.json#/$defs/constraintType" },
+    "description": { "type": "string", "minLength": 1 },
+    "severity": { "$ref": "common.schema.json#/$defs/constraintSeverity" },
+    "state": { "$ref": "common.schema.json#/$defs/constraintState" },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "missionId", "type", "description", "severity", "state", "createdAt"],
+  "additionalProperties": false
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.poiva.dev/protocol/capability.schema.json",
+  "title": "Capability",
+  "description": "A skill or capacity a Participant can advertise and an Activity can require. See docs/protocol/08-capabilities.md.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "code": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable, org-unique identifier for this capability (e.g. 'JAVA', 'CLINICAL_REVIEW')."
+    },
+    "display": { "type": "string", "minLength": 1 },
+    "description": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "createdAt": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "required": ["id", "code", "display", "createdAt"],
+  "additionalProperties": false
+}

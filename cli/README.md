@@ -26,6 +26,8 @@ poiva auth signup --organization Acme --email vlad@acme.com --password s3cret123
 poiva mission create --file mission.yaml
 poiva mission list
 poiva mission update mission-123 --state executing
+poiva participant create --displayName "Vlad" --kind HUMAN
+poiva activity assign activity-1 --participantId <participant-id>
 poiva mission share create mission-123
 poiva verify <token-from-share-link>
 ```
@@ -46,35 +48,39 @@ not an API key.
 session is active. `org list`/`org switch` stay local-workspace-only — the server model has no
 multi-org membership to switch between.
 
-The CLI's remote resource support covers the six protocol resources with a typed server model:
-**mission, activity, deliverable, evidence, verification, settlement** — see
-`REMOTE_RESOURCE_DEFS` in `./poiva`. `create`/`list` and each resource's single-item `get` call the
-server directly; addressing a child resource (`activity`, `deliverable`, `settlement` under a
-mission; `evidence`, `verification` under a deliverable) takes the parent id as a **positional**
-argument, e.g. `poiva activity list mission-123`, not a flag.
+**Every resource in `RESOURCE_DEFS` is now server-backed** — see `REMOTE_RESOURCE_DEFS` in
+`./poiva`. That's the original six with a typed lifecycle (**mission, activity, deliverable,
+evidence, verification, settlement**) plus nine more added when the backend "filled out" the rest
+of the protocol spec (docs 07-23): **participant, capability, knowledge, estimate, proposal,
+artifact, objective, constraint, policy** — plus a standalone, read-only **event** log. `create`/
+`list` and each resource's single-item `get` call the server directly; addressing a child resource
+(e.g. `activity`/`deliverable`/`settlement`/`objective`/`constraint`/`estimate`/`proposal`/
+`knowledge` under a mission; `evidence`/`verification`/`artifact` under a deliverable) takes the
+parent id as a **positional** argument, e.g. `poiva activity list mission-123`, not a flag.
+`participant`, `capability`, and `policy` are org-scoped — no parent id at all.
 
-Mission/Activity/Deliverable/Settlement also support `delete` (soft-delete: hidden from `list`, not
-erased) and `poiva mission events <id>` / `poiva activity events <id>` (the protocol event log).
-Evidence and Verification stay immutable once created per spec — no update or delete for either.
+Most resources support `delete`: soft-delete (hidden from `list`, not erased) for the original six
+workspace resources, hard delete for participant/capability/estimate/proposal/objective/constraint/
+policy. **Evidence, Artifact, Knowledge Capsule, and Event stay immutable once created** per
+spec — no update or delete for any of the four, and Event additionally has no create (it's a side
+effect of other mutations, not something you create directly).
 
 Beyond the generic `update --state ...` transition, some resources expose explicit lifecycle
 actions that the server validates through the same transition graph: `mission cancel`,
-`activity assign|submit|approve`, `verification evaluate --outcome ...`, `settlement confirm`.
-`activity assign <id> [--participantId <uuid>]` defaults to self-assignment when the flag is
-omitted — there's currently no endpoint to look up another participant's id.
+`activity assign|submit|approve`, `verification evaluate --outcome ...`, `settlement confirm`,
+`participant attach --code ...`, `estimate accept`, `proposal accept`. `activity assign <id>
+[--participantId <uuid>]` defaults to self-assignment when the flag is omitted — there's currently
+no endpoint to look up another participant's id, so multi-person assignment needs the assignee's
+own participant id from elsewhere (e.g. their own `poiva participant list`).
 
 **`poiva mission share create|get|revoke <missionId>`** manages a mission's public verification
 link via `/api/cloud/workspace/missions/{id}/share` (requires a session). **`poiva verify <token>`**
 fetches the verification timeline behind that link from `/api/public/verify/{token}` — unauthenticated,
 works with no session at all (defaults to `https://getpoiva.com`, or pass `--url`).
 
-**`participant` is still local-workspace-only** — the server has no participant create/list/get
-endpoint. Participant, Capability, Knowledge Capsule, Estimate, and Planning Proposal have no
-written protocol spec chapter yet, so the backend deliberately leaves them unmodeled for now
-(each org member gets a participant record auto-provisioned on their first authenticated request
-instead). `capability`, `knowledge`, `objective`, `constraint`, `policy`, and `event` are in the
-same boat and operate on a local JSON workspace under `.poiva/` in the current directory — useful
-for drafting before a server-side model exists, but not synced to any server.
+Every resource also has a local-workspace fallback under `.poiva/` in the current directory for
+when no session is active (`poiva init` without `poiva auth login`) — useful for drafting offline,
+but not synced to any server. As soon as a session is active, all remote commands above take over.
 
 ## Sessions
 
@@ -85,5 +91,5 @@ creating and activating a session in one step.
 ## Configuration files
 
 - `~/.poiva/sessions.json`, `~/.poiva/current-session.json` — global, machine-wide session store.
-- `.poiva/` in the current directory — local workspace state for resources without a server model
-  yet (see above). Not meant to be committed.
+- `.poiva/` in the current directory — local workspace fallback state, used when no session is
+  active (see above). Not meant to be committed.
